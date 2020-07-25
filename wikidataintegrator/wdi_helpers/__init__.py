@@ -147,8 +147,8 @@ def prop2qid(prop, value, endpoint='https://query.wikidata.org/sparql'):
         return result[0]['item']['value'].split("/")[-1]
 
 
-def id_mapper(prop, filters=None, raise_on_duplicate=False, return_as_set=False, prefer_exact_match=False,
-              endpoint='https://query.wikidata.org/sparql'):
+def id_mapper(prop, mapping_relation_type, filters=None, raise_on_duplicate=False, return_as_set=False, prefer_exact_match=False,
+              endpoint='https://query.wikidata.org/sparql', wikibase_url='http://www.wikidata.org'):
     """
     Get all wikidata ID <-> prop <-> value mappings
     Example: id_mapper("P352") -> { 'A0KH68': 'Q23429083',
@@ -180,13 +180,16 @@ def id_mapper(prop, filters=None, raise_on_duplicate=False, return_as_set=False,
     :return: dict
 
     """
-    query = "SELECT ?id ?item ?mrt WHERE {"
+    query = "PREFIX ps: <{wb_url}/prop/statement/>\n".format(wb_url=wikibase_url)
+    query += "PREFIX pq: <{wb_url}/prop/qualifier/>\n".format(wb_url=wikibase_url)
+    query += "SELECT ?id ?item ?mrt WHERE {\n"
     query += "?item p:{} ?s .\n?s ps:{} ?id .\n".format(prop, prop)
-    query += "OPTIONAL {?s pq:P4390 ?mrt}\n"
+    query += "OPTIONAL {?s pq:{} ?mrt}\n".format(mapping_relation_type)
     if filters:
         for f in filters:
             query += "?item wdt:{} wd:{} .\n".format(f[0], f[1])
     query = query + "}"
+    print(query)
     results = wdi_core.WDItemEngine.execute_sparql_query(query, endpoint=endpoint)['results']['bindings']
     results = [{k: v['value'] for k, v in x.items()} for x in results]
     for r in results:

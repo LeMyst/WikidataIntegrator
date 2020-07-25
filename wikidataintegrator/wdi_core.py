@@ -4,7 +4,9 @@ import json
 import logging
 import os
 import re
+import sys
 import time
+import traceback
 import warnings
 from collections import defaultdict
 from typing import List
@@ -163,16 +165,22 @@ class WDItemEngine(object):
 
         if (core_props is None) and (self.sparql_endpoint_url not in self.DISTINCT_VALUE_PROPS):
             self.get_distinct_value_props(self.sparql_endpoint_url, self.wikibase_url, self.property_constraint_pid,
-                                          self.distinct_values_constraint_qid)
+                                          self.distinct_values_constraint_qid, debug=self.debug)
         self.core_props = core_props if core_props is not None else self.DISTINCT_VALUE_PROPS[self.sparql_endpoint_url]
 
         try:
-            self.mrh = MappingRelationHelper(self.sparql_endpoint_url)
+            self.mrh = MappingRelationHelper(self.sparql_endpoint_url, self.wikibase_url)
         except Exception as e:
             # if the "equivalent property" and "mappingRelation" property are not found, we can't know what the
             # QIDs for the mapping relation types are
             self.mrh = None
-            warnings.warn("mapping relation types are being ignored")
+            if self.debug:
+                warnings.warn("mapping relation types are being ignored: {}".format(e))
+                print('print_exc():')
+                traceback.print_exc(file=sys.stdout)
+                print()
+                print('print_exc(1):')
+                traceback.print_exc(limit=1, file=sys.stdout)
 
         if self.fast_run:
             self.init_fastrun()
@@ -194,7 +202,7 @@ class WDItemEngine(object):
 
     @classmethod
     def get_distinct_value_props(cls, sparql_endpoint_url=None, wikibase_url=None, property_constraint_pid=None,
-                                 distinct_values_constraint_qid=None):
+                                 distinct_values_constraint_qid=None, debug=False):
         """
         On wikidata, the default core IDs will be the properties with a distinct values constraint
         select ?p where {?p wdt:P2302 wd:Q21502410}
@@ -220,6 +228,10 @@ class WDItemEngine(object):
             ?p wdt:{1} wd:{2}
         }}
         '''.format(wikibase_url, pcpid, dvcqid)
+
+        if debug:
+            print(query)
+
         df = cls.execute_sparql_query(query, endpoint=sparql_endpoint_url, as_dataframe=True)
         if df.empty:
             warnings.warn("Warning: No distinct value properties found\n" +
@@ -1642,15 +1654,6 @@ class WDBaseDataType(object):
     The base class for all Wikidata data types, they inherit from it
     """
 
-    # example sparql query
-    """
-    SELECT * WHERE {
-      ?item_id p:P492 ?s .
-      ?s ps:P492 '614212' .
-      OPTIONAL {?s pq:P4390 ?mrt}
-    }
-    """
-
     sparql_query = '''
         PREFIX wd: <{wb_url}/entity/>
         PREFIX wdt: <{wb_url}/prop/direct/>
@@ -1665,7 +1668,7 @@ class WDBaseDataType(object):
     '''
 
     def __init__(self, value, snak_type, data_type, is_reference, is_qualifier, references, qualifiers, rank, prop_nr,
-                 check_qualifier_equality):
+                 check_qualifier_equality, if_exist):
         """
         Constructor, will be called by all data types.
         :param value: Data value of the WD data snak
@@ -2179,7 +2182,7 @@ class WDItemID(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='append'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD item ID to serve as the value
@@ -2203,7 +2206,7 @@ class WDItemID(WDBaseDataType):
         super(WDItemID, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality)
+                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 

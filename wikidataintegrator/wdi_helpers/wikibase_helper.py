@@ -13,14 +13,19 @@ class WikibaseHelper:
     'http://www.w3.org/2002/07/owl#equivalentClass' respectively
     """
 
-    def __init__(self, sparql_endpoint_url='https://query.wikidata.org/sparql'):
+    def __init__(self, sparql_endpoint_url='https://query.wikidata.org/sparql', wikibase_url='http://www.wikidata.org'):
         self.sparql_endpoint_url = sparql_endpoint_url
         # a map of property URIs to a PID in the wikibase you are using
         try:
             equiv_prop_pid = self.guess_equivalent_property_pid()
         except Exception:
             raise ValueError("Error: No property found with URI 'http://www.w3.org/2002/07/owl#equivalentProperty'")
-        uri_pid = id_mapper(equiv_prop_pid, endpoint=self.sparql_endpoint_url, return_as_set=True)
+        try:
+            map_rel_type_pid = self.guess_mapping_relation_type_pid(equiv_prop_pid)
+        except Exception:
+            raise ValueError("Error: No property found with URI 'http://www.w3.org/2002/07/owl#equivalentProperty'")
+        uri_pid = id_mapper(equiv_prop_pid, map_rel_type_pid, endpoint=self.sparql_endpoint_url, return_as_set=True, wikibase_url=wikibase_url)
+        print(uri_pid)
         # remove duplicates/conflicts
         self.URI_PID = {k: list(v)[0] for k, v in uri_pid.items() if len(v) == 1}
         # get equivalent class PID
@@ -29,7 +34,7 @@ class WikibaseHelper:
         equiv_class_pid = self.URI_PID['http://www.w3.org/2002/07/owl#equivalentClass']
         # a map of item URIs to a QID in the wikibase you are using
         uri_qid = id_mapper(equiv_class_pid, endpoint=self.sparql_endpoint_url,
-                            return_as_set=True)
+                            return_as_set=True, wikibase_url=wikibase_url)
         # remove duplicates/conflicts
         self.URI_QID = {k: list(v)[0] for k, v in uri_qid.items() if len(v) == 1}
 
@@ -39,6 +44,17 @@ class WikibaseHelper:
           ?item ?prop <http://www.w3.org/2002/07/owl#equivalentProperty> .
           ?item <http://wikiba.se/ontology#directClaim> ?prop .
         }'''
+        pid = wdi_core.WDItemEngine.execute_sparql_query(query, endpoint=self.sparql_endpoint_url)
+        pid = pid['results']['bindings'][0]['prop']['value']
+        pid = pid.split("/")[-1]
+        return pid
+
+    def guess_mapping_relation_type_pid(self, equivalent_property_pid):
+        # get the equivalent property PID without knowing the PID for equivalent property!!!
+        query = '''SELECT * WHERE {
+          ?item {} <http://www.w3.org/2004/02/skos/core#mappingRelation> .
+        }'''.format(equivalent_property_pid)
+        print(query)
         pid = wdi_core.WDItemEngine.execute_sparql_query(query, endpoint=self.sparql_endpoint_url)
         pid = pid['results']['bindings'][0]['prop']['value']
         pid = pid.split("/")[-1]

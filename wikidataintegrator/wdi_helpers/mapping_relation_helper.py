@@ -13,19 +13,19 @@ class MappingRelationHelper:
         "narrow": "http://www.w3.org/2004/02/skos/core#narrowMatch"
     }
 
-    def __init__(self, sparql_endpoint_url='https://query.wikidata.org/sparql'):
+    def __init__(self, sparql_endpoint_url='https://query.wikidata.org/sparql', wikibase_url='http://www.wikidata.org'):
         if sparql_endpoint_url == 'https://query.wikidata.org/sparql':
             self.mrt_qids = {self.ABV_MRT[k]: v for k, v in RELATIONS.items()}
             self.mrt_pid = PROPS['mapping relation type']
         else:
-            mrt_pid, mrt_qids = self.get_pids_qids(sparql_endpoint_url)
+            mrt_pid, mrt_qids = self.get_pids_qids(sparql_endpoint_url, wikibase_url)
             self.mrt_pid = mrt_pid
             self.mrt_qids = mrt_qids
 
     @classmethod
     @lru_cache()
-    def get_pids_qids(cls, sparql_endpoint_url):
-        h = WikibaseHelper(sparql_endpoint_url=sparql_endpoint_url)
+    def get_pids_qids(cls, sparql_endpoint_url, wikibase_url):
+        h = WikibaseHelper(sparql_endpoint_url=sparql_endpoint_url, wikibase_url=wikibase_url)
         mrt_pid = h.get_pid("http://www.w3.org/2004/02/skos/core#mappingRelation")
         mrt_qids = {x: h.get_qid(x) for x in cls.ABV_MRT.values()}
         return mrt_pid, mrt_qids
