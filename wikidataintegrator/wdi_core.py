@@ -478,107 +478,92 @@ class WDItemEngine(object):
         :return: None
         """
 
-        def handle_qualifiers(old_item, new_item):
-            if not new_item.check_qualifier_equality:
-                old_item.set_qualifiers(new_item.get_qualifiers())
+        def handle_datatype(statements, stat):
+            prop_nr = stat.get_prop_nr()
+            #
+            # # self.statement : wikibase representation
+            # # self.data : local data
+            # # prop_data : local data who will be insert
+            # # stat : one data element from self.data
 
-        def is_good_ref(ref_block):
+            # We retrieve statement that already exist in the wb item and have the same property number
+            prop_data = [x for x in self.statements if x.get_prop_nr() == prop_nr]
+            # # We create a list of bool of statement that exist (True) or not (False)
+            # prop_pos = [x.get_prop_nr() == prop_nr for x in self.statements]
+            # # TODO : Why do we need to reverse here?
+            # prop_pos.reverse()
+            # # We count the number of new statement to add to wb item
+            # insert_pos = len(prop_pos) - (prop_pos.index(True) if any(prop_pos) else 0)
+            #
+            # print('j')
+            # pprint(prop_data)
+            # pprint(prop_pos)
+            # pprint(insert_pos)
 
-            if len(WDItemEngine.databases) == 0:
-                WDItemEngine._init_ref_system()
+            # if_exist value:
+            # REPLACE
+            # KEEP or SKIP
+            # APPEND
+            # UPDATE (if value already exist)
 
-            prop_nrs = [x.get_prop_nr() for x in ref_block]
-            values = [x.get_value() for x in ref_block]
-            good_ref = True
-            prop_value_map = dict(zip(prop_nrs, values))
+            # TODO Remove all self.statement where stat have an empty value and snap_types is value
 
-            # if self.good_refs has content, use these to determine good references
-            if self.good_refs and len(self.good_refs) > 0:
-                found_good = True
-                for rblock in self.good_refs:
+            # # collect all statements which should be deleted
+            # if stat.get_value() == '' and stat.get_snak() == 'value' and isinstance(stat, WDBaseDataType):
+            #     setattr(stat, 'remove', '')
 
-                    if not all([k in prop_value_map for k, v in rblock.items()]):
-                        found_good = False
+            # TODO Update a claim with a new claim. Copy and merge qualifiers and references
+            if stat.if_exist == 'UPDATE':
+                # You can't update qualifier or reference
+                if stat.is_qualifier or stat.is_reference:
+                    raise ValueError('You can\'t update a qualifier or a reference')
 
-                    if not all([v in prop_value_map[k] for k, v in rblock.items() if v]):
-                        found_good = False
+                equal_items = [stat.get_prop_nr() == x.get_prop_nr() and
+                               stat.get_value() == x.get_value() for x in prop_data]
+                if True not in equal_items:
+                    raise ValueError('Can\'t update property \'{}\' with value \'{}\': This value doesn\'t exist'.format(stat.get_prop_nr(), stat.get_value()))
+                elif equal_items.count(True) > 1:
+                    raise ValueError('Can\'t update property \'{}\' with value \'{}\': The value exist multiple times')
+                else:
+                    for x in prop_data:
+                        print('n')
+                        if stat.get_prop_nr() == x.get_prop_nr() and stat.get_value() == x.get_value():
+                            print('o')
+                            for qualifier in stat.qualifiers:
+                                print('p')
+                                handle_datatype(x.qualifiers, qualifier)
+                            #for reference_list in stat.references:
+                            #    print('q')
+                            #    handle_datatype(x.references, reference)
 
-                    if found_good:
-                        return True
+            # TODO Replace all value where if_exist is REPLACE
+            elif stat.if_exist == 'REPLACE':
+                # iterate over statements to mark old claims as remove
+                for data in statements:
+                    if data.get_prop_nr() == stat.get_prop_nr() and not hasattr(data, 'retain'):
+                        setattr(data, 'remove', '')
+                setattr(stat, 'retain', '')
+                statements.append(stat)
 
-                return False
+            elif stat.if_exist == 'KEEP':
+                equal_items = [stat.get_prop_nr() == x.get_prop_nr() for x in prop_data]
+                pprint(prop_data)
+                pprint(equal_items)
+                if True not in equal_items:
+                    if self.debug:
+                        print('No property {} already exist. Adding the claim'.format(stat.get_prop_nr()))
+                    setattr(stat, 'retain', '')
+                    statements.append(stat)
+                else:
+                    if self.debug:
+                        print('Property {} is already claimed, don\'t add it'.format(stat.get_prop_nr()))
 
-            # stated in, title, retrieved
-            ref_properties = ['P248', 'P1476', 'P813']
-
-            for v in values:
-                if prop_nrs[values.index(v)] == 'P248':
-                    return True
-                elif v == 'P698':
-                    return True
-
-            for p in ref_properties:
-                if p not in prop_nrs:
-                    return False
-
-            for ref in ref_block:
-                pn = ref.get_prop_nr()
-                value = ref.get_value()
-
-                if pn == 'P248' and value not in WDItemEngine.databases and 'P854' not in prop_nrs:
-                    return False
-                elif pn == 'P248' and value in WDItemEngine.databases:
-                    db_props = WDItemEngine.databases[value]
-                    if not any([False if x not in prop_nrs else True for x in db_props]) and 'P854' not in prop_nrs:
-                        return False
-
-            return good_ref
-
-        def handle_references(old_item, new_item):
-            """
-            Local function to handle references
-            :param old_item: An item containing the data as currently in WD
-            :type old_item: A child of WDBaseDataType
-            :param new_item: An item containing the new data which should be written to WD
-            :type new_item: A child of WDBaseDataType
-            """
-            # stated in, title, language of work, retrieved, imported from
-            ref_properties = ['P248', 'P1476', 'P407', 'P813', 'P143']
-            new_references = new_item.get_references()
-            old_references = old_item.get_references()
-
-            if any([z.overwrite_references for y in new_references for z in y]) \
-                    or sum(map(lambda z: len(z), old_references)) == 0 \
-                    or self.global_ref_mode == 'STRICT_OVERWRITE':
-                old_item.set_references(new_references)
-
-            elif self.global_ref_mode == 'STRICT_KEEP' or new_item.statement_ref_mode == 'STRICT_KEEP':
-                pass
-
-            elif self.global_ref_mode == 'STRICT_KEEP_APPEND' or new_item.statement_ref_mode == 'STRICT_KEEP_APPEND':
-                old_references.extend(new_references)
-                old_item.set_references(old_references)
-
-            elif self.global_ref_mode == 'CUSTOM' or new_item.statement_ref_mode == 'CUSTOM':
-                self.ref_handler(old_item, new_item)
-
-            elif self.global_ref_mode == 'KEEP_GOOD' or new_item.statement_ref_mode == 'KEEP_GOOD':
-                keep_block = [False for x in old_references]
-                for count, ref_block in enumerate(old_references):
-                    stated_in_value = [x.get_value() for x in ref_block if x.get_prop_nr() == 'P248']
-                    if is_good_ref(ref_block):
-                        keep_block[count] = True
-
-                    new_ref_si_values = [x.get_value() if x.get_prop_nr() == 'P248' else None
-                                         for z in new_references for x in z]
-
-                    for si in stated_in_value:
-                        if si in new_ref_si_values:
-                            keep_block[count] = False
-
-                refs = [x for c, x in enumerate(old_references) if keep_block[c]]
-                refs.extend(new_references)
-                old_item.set_references(refs)
+            # TODO APPEND
+            elif stat.if_exist == 'APPEND':
+                if self.debug:
+                    print('Append {} to claim'.format(stat.get_prop_nr()))
+                setattr(stat, 'retain', '')
+                statements.append(stat)
 
         # sort the incoming data according to the WD property number
         self.data.sort(key=lambda z: z.get_prop_nr().lower())
@@ -590,67 +575,15 @@ class WDItemEngine(object):
         else:
             # Iterate on all data we want to insert
             for stat in self.data:
+                if stat.references:
+                    for reference_list in stat.references:
+                        for reference in reference_list:
+                            reference.is_reference = True
+                if stat.qualifiers:
+                    for qualifier in stat.qualifiers:
+                        qualifier.is_qualifier = True
 
-                prop_nr = stat.get_prop_nr()
-                #
-                # # self.statement : wikibase representation
-                # # self.data : local data
-                # # prop_data : local data who will be insert
-                # # stat : one data element from self.data
-                #
-                # We retrieve statement that already exist in the wb item
-                prop_data = [x for x in self.statements if x.get_prop_nr() == prop_nr]
-                # # We create a list of bool of statement that exist (True) or not (False)
-                # prop_pos = [x.get_prop_nr() == prop_nr for x in self.statements]
-                # # TODO : Why do we need to reverse here?
-                # prop_pos.reverse()
-                # # We count the number of new statement to add to wb item
-                # insert_pos = len(prop_pos) - (prop_pos.index(True) if any(prop_pos) else 0)
-                #
-                # print('j')
-                # pprint(prop_data)
-                # pprint(prop_pos)
-                # pprint(insert_pos)
-
-                # if_exist value:
-                # REPLACE
-                # KEEP
-                # APPEND
-
-                # TODO Remove all self.statement where stat have an empty value and snap_types is value
-
-                # # collect all statements which should be deleted
-                # if stat.get_value() == '' and stat.get_snak() == 'value' and isinstance(stat, WDBaseDataType):
-                #     setattr(stat, 'remove', '')
-
-                # TODO Replace all value where if_exist is REPLACE
-                if stat.if_exist == 'REPLACE':
-                    # iterate over statements to mark old claims as remove
-                    for data in self.statements:
-                        if data.get_prop_nr() == stat.get_prop_nr() and not hasattr(data, 'retain'):
-                            setattr(data, 'remove', '')
-                    setattr(stat, 'retain', '')
-                    self.statements.append(stat)
-
-                if stat.if_exist == 'KEEP':
-                    equal_items = [stat.get_prop_nr() == x.get_prop_nr() for x in prop_data]
-                    pprint(prop_data)
-                    pprint(equal_items)
-                    if True not in equal_items:
-                        if self.debug:
-                            print('No property {} already exist. Adding the claim'.format(stat.get_prop_nr()))
-                        setattr(stat, 'retain', '')
-                        self.statements.append(stat)
-                    else:
-                        if self.debug:
-                            print('Property {} is already claimed, don\'t add it'.format(stat.get_prop_nr()))
-
-                # TODO APPEND
-                elif stat.if_exist == 'APPEND':
-                    if self.debug:
-                        print('Append {} to claim'.format(stat.get_prop_nr()))
-                    setattr(stat, 'retain', '')
-                    self.statements.append(stat)
+                handle_datatype(self.statements, stat)
 
         print('l')
         pprint(self.statements)
@@ -2041,7 +1974,7 @@ class WDString(WDBaseDataType):
     DTYPE = 'string'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The string to be used as the value
@@ -2065,7 +1998,7 @@ class WDString(WDBaseDataType):
         super(WDString, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality)
+                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2095,7 +2028,7 @@ class WDMath(WDBaseDataType):
     DTYPE = 'math'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The string to be used as the value
@@ -2118,7 +2051,8 @@ class WDMath(WDBaseDataType):
 
         super(WDMath, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                      is_qualifier=is_qualifier, references=references, qualifiers=qualifiers,
-                                     rank=rank, prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality)
+                                     rank=rank, prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality,
+                                     if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2148,7 +2082,7 @@ class WDExternalID(WDBaseDataType):
     DTYPE = 'external-id'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The string to be used as the value
@@ -2172,7 +2106,7 @@ class WDExternalID(WDBaseDataType):
         super(WDExternalID, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                            is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                            qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                           check_qualifier_equality=check_qualifier_equality)
+                                           check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2300,7 +2234,7 @@ class WDProperty(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD property number to serve as a value
@@ -2324,7 +2258,7 @@ class WDProperty(WDBaseDataType):
         super(WDProperty, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                          is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                          qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                         check_qualifier_equality=check_qualifier_equality)
+                                         check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2373,7 +2307,7 @@ class WDTime(WDBaseDataType):
 
     def __init__(self, time, prop_nr, precision=11, timezone=0, calendarmodel=None,
                  concept_base_uri=None, is_reference=False, is_qualifier=False, snak_type='value',
-                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param time: A time representation string in the following format: '+%Y-%m-%dT%H:%M:%SZ'
@@ -2411,7 +2345,7 @@ class WDTime(WDBaseDataType):
 
         super(WDTime, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                      is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                                     prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality)
+                                     prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2458,7 +2392,7 @@ class WDUrl(WDBaseDataType):
     DTYPE = 'url'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The URL to be used as the value
@@ -2481,7 +2415,7 @@ class WDUrl(WDBaseDataType):
 
         super(WDUrl, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                     is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                                    prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality)
+                                    prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2518,7 +2452,7 @@ class WDMonolingualText(WDBaseDataType):
     DTYPE = 'monolingualtext'
 
     def __init__(self, value, prop_nr, language='en', is_reference=False, is_qualifier=False, snak_type='value',
-                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The language specific string to be used as the value
@@ -2547,7 +2481,7 @@ class WDMonolingualText(WDBaseDataType):
         super(WDMonolingualText, self) \
             .__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                       is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality)
+                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2582,7 +2516,7 @@ class WDQuantity(WDBaseDataType):
 
     def __init__(self, value, prop_nr, upper_bound=None, lower_bound=None, unit='1', is_reference=False,
                  is_qualifier=False, snak_type='value', references=None, qualifiers=None, rank='normal',
-                 check_qualifier_equality=True, concept_base_uri=None):
+                 check_qualifier_equality=True, concept_base_uri=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The quantity value
@@ -2620,7 +2554,7 @@ class WDQuantity(WDBaseDataType):
         super(WDQuantity, self).__init__(value=v, snak_type=snak_type, data_type=self.DTYPE,
                                          is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                          qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                         check_qualifier_equality=check_qualifier_equality)
+                                         check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(v)
 
@@ -2703,7 +2637,7 @@ class WDCommonsMedia(WDBaseDataType):
     DTYPE = 'commonsMedia'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The media file name from Wikimedia commons to be used as the value
@@ -2727,7 +2661,7 @@ class WDCommonsMedia(WDBaseDataType):
         super(WDCommonsMedia, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                              is_reference=is_reference, is_qualifier=is_qualifier,
                                              references=references, qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                             check_qualifier_equality=check_qualifier_equality)
+                                             check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2756,7 +2690,8 @@ class WDGlobeCoordinate(WDBaseDataType):
 
     def __init__(self, latitude, longitude, precision, prop_nr, globe=None,
                  concept_base_uri=None, is_reference=False, is_qualifier=False,
-                 snak_type='value', references=None, qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 snak_type='value', references=None, qualifiers=None, rank='normal', check_qualifier_equality=True,
+                 if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param latitude: Latitute in decimal format
@@ -2792,7 +2727,7 @@ class WDGlobeCoordinate(WDBaseDataType):
         super(WDGlobeCoordinate, self) \
             .__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                       is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality)
+                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2834,7 +2769,7 @@ class WDGeoShape(WDBaseDataType):
     DTYPE = 'geo-shape'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The GeoShape map file name in Wikimedia Commons to be linked
@@ -2858,7 +2793,7 @@ class WDGeoShape(WDBaseDataType):
         super(WDGeoShape, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                          is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                          qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                         check_qualifier_equality=check_qualifier_equality)
+                                         check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2895,7 +2830,7 @@ class WDMusicalNotation(WDBaseDataType):
     DTYPE = 'musical-notation'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: Values for that data type are strings describing music following LilyPond syntax.
@@ -2920,7 +2855,7 @@ class WDMusicalNotation(WDBaseDataType):
                                                 is_reference=is_reference, is_qualifier=is_qualifier,
                                                 references=references,
                                                 qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                                check_qualifier_equality=check_qualifier_equality)
+                                                check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2950,7 +2885,7 @@ class WDTabularData(WDBaseDataType):
     DTYPE = 'tabular-data'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: Reference to tabular data file on Wikimedia Commons.
@@ -2974,7 +2909,7 @@ class WDTabularData(WDBaseDataType):
         super(WDTabularData, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                             is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                             qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                            check_qualifier_equality=check_qualifier_equality)
+                                            check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -3023,7 +2958,7 @@ class WDLexeme(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD lexeme number to serve as a value
@@ -3047,7 +2982,7 @@ class WDLexeme(WDBaseDataType):
         super(WDLexeme, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality)
+                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -3095,7 +3030,7 @@ class WDForm(WDBaseDataType):
     DTYPE = 'wikibase-form'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD form number to serve as a value using the format "L<Lexeme ID>-F<Form ID>" (example: L252248-F2)
@@ -3119,7 +3054,7 @@ class WDForm(WDBaseDataType):
         super(WDForm, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                      is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                      qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                     check_qualifier_equality=check_qualifier_equality)
+                                     check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -3161,7 +3096,7 @@ class WDSense(WDBaseDataType):
     DTYPE = 'wikibase-sense'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD form number to serve as a value using the format "L<Lexeme ID>-F<Form ID>" (example: L252248-F2)
@@ -3185,7 +3120,7 @@ class WDSense(WDBaseDataType):
         super(WDSense, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                       is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                       qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                      check_qualifier_equality=check_qualifier_equality)
+                                      check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
