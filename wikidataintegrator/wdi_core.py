@@ -7,6 +7,7 @@ import re
 import time
 import warnings
 from collections import defaultdict
+from pprint import pprint
 from typing import List
 
 import pandas as pd
@@ -46,7 +47,7 @@ class WDItemEngine(object):
     logger = None
 
     def __init__(self, wd_item_id='', new_item=False, data=None, mediawiki_api_url=None, sparql_endpoint_url=None,
-                 wikibase_url=None, concept_base_uri=None, append_value=None, fast_run=False, fast_run_base_filter=None,
+                 wikibase_url=None, concept_base_uri=None, fast_run=False, fast_run_base_filter=None,
                  fast_run_use_refs=False, ref_handler=None, global_ref_mode='KEEP_GOOD', good_refs=None,
                  keep_good_ref_statements=False, search_only=False, item_data=None, user_agent=None, core_props=None,
                  core_prop_match_thresh=0.66, property_constraint_pid=None, distinct_values_constraint_qid=None,
@@ -59,9 +60,6 @@ class WDItemEngine(object):
         :param data: a dictionary with WD property strings as keys and the data which should be written to
             a WD item as the property values
         :type data: List[WDBaseDataType]
-        :param append_value: a list of properties where potential existing values should not be overwritten by the data
-            passed in the :parameter data.
-        :type append_value: list of property number strings
         :param fast_run: True if this item should be run in fastrun mode, otherwise False. User setting this to True
             should also specify the fast_run_base_filter for these item types
         :type fast_run: bool
@@ -132,7 +130,6 @@ class WDItemEngine(object):
         self.distinct_values_constraint_qid = config[
             'DISTINCT_VALUES_CONSTRAINT_QID'] if distinct_values_constraint_qid is None else distinct_values_constraint_qid
         self.data = [] if data is None else data
-        self.append_value = [] if append_value is None else append_value
         self.fast_run = fast_run
         self.fast_run_base_filter = fast_run_base_filter
         self.fast_run_use_refs = fast_run_use_refs
@@ -175,6 +172,7 @@ class WDItemEngine(object):
             warnings.warn("mapping relation types are being ignored")
 
         if self.fast_run:
+            print('fast_run enabled')
             self.init_fastrun()
             if self.debug:
                 if self.require_write:
@@ -183,13 +181,14 @@ class WDItemEngine(object):
                     print('successful fastrun, no write to Wikidata required')
 
         if self.wd_item_id != '' and self.create_new_item == True:
+            print('a')
             raise IDMissingError('Cannot create a new item, when a wikidata identifier is given')
         elif self.new_item == True and len(self.data) > 0:
+            print('b')
             self.create_new_item = True
             self.__construct_claim_json()
-        elif self.wd_item_id and self.require_write:
-            self.init_data_load()
         elif self.require_write:
+            print('d')
             self.init_data_load()
 
     @classmethod
@@ -232,10 +231,14 @@ class WDItemEngine(object):
 
     def init_data_load(self):
         if self.wd_item_id and self.item_data:
+            print('e')
             self.wd_json_representation = self.parse_wd_json(self.item_data)
         elif self.wd_item_id:
+            print('f')
             self.wd_json_representation = self.get_wd_entity()
+            pprint(self.wd_json_representation)
         else:
+            print('g')
             qids_by_props = ''
             try:
                 qids_by_props = self.__select_wd_item()
@@ -248,8 +251,10 @@ class WDItemEngine(object):
                 self.__check_integrity()
 
         if not self.search_only:
+            print('h')
             self.__construct_claim_json()
         else:
+            print('i')
             self.data = []
 
     def init_fastrun(self):
@@ -272,8 +277,7 @@ class WDItemEngine(object):
                                                        debug=self.debug)
             WDItemEngine.fast_run_store.append(self.fast_run_container)
 
-        self.require_write = self.fast_run_container.write_required(self.data, append_props=self.append_value,
-                                                                    cqid=self.wd_item_id)
+        self.require_write = self.fast_run_container.write_required(self.data, cqid=self.wd_item_id)
 
         # set item id based on fast run data
         if not self.require_write and not self.wd_item_id:
@@ -578,76 +582,84 @@ class WDItemEngine(object):
 
         # sort the incoming data according to the WD property number
         self.data.sort(key=lambda z: z.get_prop_nr().lower())
-
-        # collect all statements which should be deleted
-        statements_for_deletion = []
-        for item in self.data:
-            if item.get_value() == '' and isinstance(item, WDBaseDataType):
-                statements_for_deletion.append(item.get_prop_nr())
+        print('i')
+        pprint(self.data)
 
         if self.create_new_item:
             self.statements = copy.copy(self.data)
         else:
+            # Iterate on all data we want to insert
             for stat in self.data:
+
                 prop_nr = stat.get_prop_nr()
-
+                #
+                # # self.statement : wikibase representation
+                # # self.data : local data
+                # # prop_data : local data who will be insert
+                # # stat : one data element from self.data
+                #
+                # We retrieve statement that already exist in the wb item
                 prop_data = [x for x in self.statements if x.get_prop_nr() == prop_nr]
-                prop_pos = [x.get_prop_nr() == prop_nr for x in self.statements]
-                prop_pos.reverse()
-                insert_pos = len(prop_pos) - (prop_pos.index(True) if any(prop_pos) else 0)
+                # # We create a list of bool of statement that exist (True) or not (False)
+                # prop_pos = [x.get_prop_nr() == prop_nr for x in self.statements]
+                # # TODO : Why do we need to reverse here?
+                # prop_pos.reverse()
+                # # We count the number of new statement to add to wb item
+                # insert_pos = len(prop_pos) - (prop_pos.index(True) if any(prop_pos) else 0)
+                #
+                # print('j')
+                # pprint(prop_data)
+                # pprint(prop_pos)
+                # pprint(insert_pos)
 
-                # If value should be appended, check if values exists, if not, append
-                if prop_nr in self.append_value:
-                    equal_items = [stat == x for x in prop_data]
+                # if_exist value:
+                # REPLACE
+                # KEEP
+                # APPEND
+
+                # TODO Remove all self.statement where stat have an empty value and snap_types is value
+
+                # # collect all statements which should be deleted
+                # if stat.get_value() == '' and stat.get_snak() == 'value' and isinstance(stat, WDBaseDataType):
+                #     setattr(stat, 'remove', '')
+
+                # TODO Replace all value where if_exist is REPLACE
+                if stat.if_exist == 'REPLACE':
+                    # iterate over statements to mark old claims as remove
+                    for data in self.statements:
+                        if data.get_prop_nr() == stat.get_prop_nr() and not hasattr(data, 'retain'):
+                            setattr(data, 'remove', '')
+                    setattr(stat, 'retain', '')
+                    self.statements.append(stat)
+
+                if stat.if_exist == 'KEEP':
+                    equal_items = [stat.get_prop_nr() == x.get_prop_nr() for x in prop_data]
+                    pprint(prop_data)
+                    pprint(equal_items)
                     if True not in equal_items:
-                        self.statements.insert(insert_pos + 1, stat)
+                        if self.debug:
+                            print('No property {} already exist. Adding the claim'.format(stat.get_prop_nr()))
+                        setattr(stat, 'retain', '')
+                        self.statements.append(stat)
                     else:
-                        # if item exists, modify rank
-                        current_item = prop_data[equal_items.index(True)]
-                        current_item.set_rank(stat.get_rank())
-                        handle_references(old_item=current_item, new_item=stat)
-                        handle_qualifiers(old_item=current_item, new_item=stat)
-                    continue
+                        if self.debug:
+                            print('Property {} is already claimed, don\'t add it'.format(stat.get_prop_nr()))
 
-                # set all existing values of a property for removal
-                for x in prop_data:
-                    # for deletion of single statements, do not set all others to delete
-                    if hasattr(stat, 'remove'):
-                        break
-                    elif x.get_id() and not hasattr(x, 'retain'):
-                        # keep statements with good references if keep_good_ref_statements is True
-                        if self.keep_good_ref_statements:
-                            if any([is_good_ref(r) for r in x.get_references()]):
-                                setattr(x, 'retain', '')
-                        else:
-                            setattr(x, 'remove', '')
+                # TODO APPEND
+                elif stat.if_exist == 'APPEND':
+                    if self.debug:
+                        print('Append {} to claim'.format(stat.get_prop_nr()))
+                    setattr(stat, 'retain', '')
+                    self.statements.append(stat)
 
-                match = []
-                for i in prop_data:
-                    if stat == i and hasattr(stat, 'remove'):
-                        match.append(True)
-                        setattr(i, 'remove', '')
-                    elif stat == i:
-                        match.append(True)
-                        setattr(i, 'retain', '')
-                        if hasattr(i, 'remove'):
-                            delattr(i, 'remove')
-                        handle_references(old_item=i, new_item=stat)
-                        handle_qualifiers(old_item=i, new_item=stat)
+        print('l')
+        pprint(self.statements)
 
-                        i.set_rank(rank=stat.get_rank())
-                    # if there is no value, do not add an element, this is also used to delete whole properties.
-                    elif i.get_value():
-                        match.append(False)
-
-                if True not in match and not hasattr(stat, 'remove'):
-                    self.statements.insert(insert_pos + 1, stat)
-
-        # For whole property deletions, add remove flag to all statements which should be deleted
         for item in copy.deepcopy(self.statements):
-            if item.get_prop_nr() in statements_for_deletion and item.get_id() != '':
-                setattr(item, 'remove', '')
-            elif item.get_prop_nr() in statements_for_deletion:
+            # pprint(item)
+            if hasattr(item, 'remove'):
+                if self.debug:
+                    print('Remove property {}'.format(item.get_prop_nr()))
                 self.statements.remove(item)
 
         # regenerate claim json
@@ -658,7 +670,11 @@ class WDItemEngine(object):
                 self.wd_json_representation['claims'][prop_nr] = []
             self.wd_json_representation['claims'][prop_nr].append(stat.get_json_representation())
 
-    def update(self, data, append_value=None):
+        print('m')
+        pprint(self.wd_json_representation['claims'])
+        pprint(self.statements)
+
+    def update(self, data):
         """
         This method takes data, and modifies the Wikidata item. This works together with the data already provided via
         the constructor or if the constructor is being instantiated with search_only=True. In the latter case, this
@@ -667,12 +683,10 @@ class WDItemEngine(object):
         via the constructor, data provided via the update() method will be appended to these data.
         :param data: A list of Wikidata statment items inheriting from WDBaseDataType
         :type data: list
-        :param append_value: list with Wikidata property strings where the values should only be appended,
-            not overwritten.
-        :type: list
         """
         assert type(data) == list
 
+        # TODO : Replace to new system
         if append_value:
             assert type(append_value) == list
             self.append_value.extend(append_value)
@@ -1665,7 +1679,7 @@ class WDBaseDataType(object):
     '''
 
     def __init__(self, value, snak_type, data_type, is_reference, is_qualifier, references, qualifiers, rank, prop_nr,
-                 check_qualifier_equality):
+                 check_qualifier_equality, if_exist):
         """
         Constructor, will be called by all data types.
         :param value: Data value of the WD data snak
@@ -1703,6 +1717,7 @@ class WDBaseDataType(object):
         self.is_qualifier = is_qualifier
         self.rank = rank
         self.check_qualifier_equality = check_qualifier_equality
+        self.if_exist = if_exist
 
         self._statement_ref_mode = 'KEEP_GOOD'
 
@@ -1732,14 +1747,17 @@ class WDBaseDataType(object):
             "datatype": self.data_type
         }
 
-        self.snak_types = ['value', 'novalue', 'somevalue']
-        if snak_type not in self.snak_types:
+        if snak_type not in ['value', 'novalue', 'somevalue']:
             raise ValueError('{} is not a valid snak type'.format(snak_type))
 
         if self.is_qualifier and self.is_reference:
             raise ValueError('A claim cannot be a reference and a qualifer at the same time')
         if (len(self.references) > 0 or len(self.qualifiers) > 0) and (self.is_qualifier or self.is_reference):
             raise ValueError('Qualifiers or references cannot have references')
+
+        # TODO Test if value='' or value=None and snak_type is value then raise error
+        if not self.value and self.snak_type == 'value':
+            raise ValueError('Value can\'t be empty and with a snap_type of value at the same time')
 
     def has_equal_qualifiers(self, other):
         # check if the qualifiers are equal with the 'other' object
@@ -1852,6 +1870,23 @@ class WDBaseDataType(object):
             raise ValueError('{} not a valid rank'.format(rank))
 
         self.rank = rank
+
+    def get_snak(self):
+        if self.is_qualifier or self.is_reference:
+            return None
+        else:
+            return self.snak_type
+
+    def set_snak(self, snak):
+        if self.is_qualifier or self.is_reference:
+            raise ValueError('References or qualifiers do not have snak')
+
+        valid_snak = ['value', 'novalue', 'somevalue']
+
+        if snak not in valid_snak:
+            raise ValueError('{} not a valid snak type'.format(snak))
+
+        self.snak_type = snak
 
     def get_id(self):
         return self.id
@@ -2179,7 +2214,7 @@ class WDItemID(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD item ID to serve as the value
@@ -2203,7 +2238,7 @@ class WDItemID(WDBaseDataType):
         super(WDItemID, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality)
+                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2212,6 +2247,8 @@ class WDItemID(WDBaseDataType):
             "Expected str or int, found {} ({})".format(type(value), value)
         if value is None:
             self.value = value
+        elif self.get_snak() == 'somevalue' or self.get_snak() == 'novalue':
+            self.value = None
         elif isinstance(value, int):
             self.value = value
         elif value.startswith("Q"):
