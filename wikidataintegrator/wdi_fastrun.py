@@ -18,7 +18,7 @@ example_Q14911732 = {'P1057':
 
 class FastRunContainer(object):
     def __init__(self, base_data_type, engine, mediawiki_api_url=None, sparql_endpoint_url=None, wikibase_url=None,
-                 concept_base_uri=None, base_filter=None, use_refs=False, ref_handler=None, debug=False):
+                 concept_base_uri=None, base_filter=None, use_refs=False, debug=False):
         self.prop_data = {}
         self.loaded_langs = {}
         self.statements = []
@@ -36,7 +36,6 @@ class FastRunContainer(object):
         self.debug = debug
         self.reconstructed_statements = []
         self.use_refs = use_refs
-        self.ref_handler = ref_handler
 
         if base_filter and any(base_filter):
             self.base_filter = base_filter
@@ -91,7 +90,7 @@ class FastRunContainer(object):
         self.reconstructed_statements = reconstructed_statements
         return reconstructed_statements
 
-    def write_required(self, data, append_props=None, cqid=None):
+    def write_required(self, data, cqid=None):
         del_props = set()
         data_props = set()
         if not append_props:
