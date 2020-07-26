@@ -7,6 +7,7 @@ import re
 import time
 import warnings
 from collections import defaultdict
+from pprint import pprint
 from typing import List
 
 import pandas as pd
@@ -47,9 +48,9 @@ class WDItemEngine(object):
 
     def __init__(self, wd_item_id='', new_item=False, data=None, mediawiki_api_url=None, sparql_endpoint_url=None,
                  wikibase_url=None, concept_base_uri=None, fast_run=False, fast_run_base_filter=None,
-                 fast_run_use_refs=False, search_only=False, item_data=None, user_agent=None, core_props=None,
-                 core_prop_match_thresh=0.66, property_constraint_pid=None, distinct_values_constraint_qid=None,
-                 fast_run_case_insensitive=False, debug=False):
+                 fast_run_use_refs=False, search_only=False, item_data=None, user_agent=None,
+                 core_props=None, core_prop_match_thresh=0.66, property_constraint_pid=None,
+                 distinct_values_constraint_qid=None, fast_run_case_insensitive=False, debug=False):
         """
         constructor
         :param wd_item_id: Wikidata item id
@@ -70,32 +71,6 @@ class WDItemEngine(object):
         :param fast_run_use_refs: If `True`, fastrun mode will consider references in determining if a statement should
             be updated and written to Wikidata. Otherwise, only the value and qualifiers are used. Default: False
         :type fast_run_use_refs: bool
-        :param ref_handler: This parameter defines a function that will manage the reference handling in a custom
-            manner. This argument should be a function handle that accepts two arguments, the old/current statement
-            (first argument) and new/proposed/to be written statement (second argument), both of type: a subclass of
-            WDBaseDataType. The function should return an new item that is the item to be written. The item's values
-            properties or qualifiers should not be modified; only references. This function is also used in fastrun mode.
-            This will only be used if the ref_mode is set to "CUSTOM".
-        :type ref_handler: function
-        :param global_ref_mode: sets the reference handling mode for an item. Four modes are possible, 'STRICT_KEEP'
-            keeps all references as they are, 'STRICT_KEEP_APPEND' keeps the references as they are and appends
-            new ones. 'STRICT_OVERWRITE' overwrites all existing references for given. 'CUSTOM' will use the function
-            defined in ref_handler
-        :type global_ref_mode: str of value 'STRICT_KEEP', 'STRICT_KEEP_APPEND', 'STRICT_OVERWRITE', 'KEEP_GOOD', 'CUSTOM'
-        :param good_refs: This parameter lets the user define blocks of good references. It is a list of dictionaries.
-            One block is a dictionary with  Wikidata properties as keys and potential values as the required value for
-            a property. There can be arbitrarily many key: value pairs in one reference block.
-            Example: [{'P248': 'Q905695', 'P352': None, 'P407': None, 'P1476': None, 'P813': None}]
-            This example contains one good reference block, stated in: Uniprot, Uniprot ID, title of Uniprot entry,
-            language of work and date when the information has been retrieved. A None type indicates that the value
-            varies from reference to reference. In this case, only the value for the Wikidata item for the
-            Uniprot database stays stable over all of these references. Key value pairs work here, as Wikidata
-            references can hold only one value for one property. The number of good reference blocks is not limited.
-            This parameter OVERRIDES any other reference mode set!!
-        :type good_refs: list containing dictionaries.
-        :param keep_good_ref_statements: Do not delete any statement which has a good reference, either defined in the
-            good_refs list or by any other referencing mode.
-        :type keep_good_ref_statements: bool
         :param search_only: If this flag is set to True, the data provided will only be used to search for the
             corresponding Wikidata item, but no actual data updates will performed. This is useful, if certain states or
             values on the target item need to be checked before certain data is written to it. In order to write new
@@ -173,6 +148,7 @@ class WDItemEngine(object):
         elif self.new_item and len(self.data) > 0:
             self.create_new_item = True
             self.__construct_claim_json()
+            self.__check_integrity()
         elif self.require_write:
             self.init_data_load()
 
@@ -188,10 +164,11 @@ class WDItemEngine(object):
 
         sparql_endpoint_url = config['SPARQL_ENDPOINT_URL'] if sparql_endpoint_url is None else sparql_endpoint_url
         wikibase_url = config['WIKIBASE_URL'] if wikibase_url is None else wikibase_url
-        property_constraint_pid = config[
-            'PROPERTY_CONSTRAINT_PID'] if property_constraint_pid is None else property_constraint_pid
+        property_constraint_pid = config['PROPERTY_CONSTRAINT_PID'] if property_constraint_pid is None \
+            else property_constraint_pid
         distinct_values_constraint_qid = config[
-            'DISTINCT_VALUES_CONSTRAINT_QID'] if distinct_values_constraint_qid is None else distinct_values_constraint_qid
+            'DISTINCT_VALUES_CONSTRAINT_QID'] if distinct_values_constraint_qid is None \
+            else distinct_values_constraint_qid
 
         pcpid = property_constraint_pid
         dvcqid = distinct_values_constraint_qid
@@ -207,7 +184,7 @@ class WDItemEngine(object):
         df = cls.execute_sparql_query(query, endpoint=sparql_endpoint_url, as_dataframe=True)
         if df.empty:
             warnings.warn("Warning: No distinct value properties found\n" +
-                          "Please set P2302 and Q21502410 in your wikibase or set `core_props` manually.\n" +
+                          "Please set P2302 and Q21502410 equivalent in your wikibase or set `core_props` manually.\n" +
                           "Continuing with no core_props")
             cls.DISTINCT_VALUE_PROPS[sparql_endpoint_url] = set()
             return None
@@ -233,6 +210,7 @@ class WDItemEngine(object):
 
         if not self.search_only:
             self.__construct_claim_json()
+            self.__check_integrity()
         else:
             self.data = []
 
@@ -515,6 +493,7 @@ class WDItemEngine(object):
                                 handle_datatype(x.qualifiers, qualifier)
                             # for reference_list in stat.references:
                             #    handle_datatype(x.references, reference)
+                        self.ref_handler(x, stat)
 
             # TODO Replace all value where if_exist is REPLACE
             elif stat.if_exist == 'REPLACE':
@@ -575,7 +554,7 @@ class WDItemEngine(object):
                 self.wd_json_representation['claims'][prop_nr] = []
             self.wd_json_representation['claims'][prop_nr].append(stat.get_json_representation())
 
-    def update(self, data):
+    def set_data(self, data):
         """
         This method takes data, and modifies the Wikidata item. This works together with the data already provided via
         the constructor or if the constructor is being instantiated with search_only=True. In the latter case, this
@@ -587,19 +566,15 @@ class WDItemEngine(object):
         """
         assert type(data) == list
 
-        # TODO : Replace to new system
-        if append_value:
-            assert type(append_value) == list
-            self.append_value.extend(append_value)
-
-        self.data.extend(data)
+        # If some data have been already passed into the __init__(), we erase them
+        self.data = data
+        # We erase all changes made before to the statements
         self.statements = copy.deepcopy(self.original_statements)
-
-        if self.debug:
-            print(self.data)
 
         if self.fast_run:
             self.init_fastrun()
+
+        # TODO Call a custom write_required function to check if a write is needed
 
         if self.require_write and self.fast_run:
             self.init_data_load()
@@ -636,12 +611,18 @@ class WDItemEngine(object):
         # this is the number of core_ids in self.data that are also on the item
         count_existing_ids = len([x for x in self.data if x.get_prop_nr() in item_core_props])
 
+        pprint(item_core_props)
         core_prop_match_count = 0
         for new_stat in self.data:
+            print('a')
+            pprint(new_stat)
             for stat in self.statements:
+                print('b')
+                pprint(stat)
                 if (new_stat.get_prop_nr() == stat.get_prop_nr()) and (new_stat.get_value() == stat.get_value()) \
                         and (new_stat.get_prop_nr() in item_core_props):
                     core_prop_match_count += 1
+        print('{} {} {}'.format(core_prop_match_count, count_existing_ids, self.core_prop_match_thresh))
 
         if core_prop_match_count < count_existing_ids * self.core_prop_match_thresh:
             existing_core_pv = defaultdict(set)
@@ -1553,7 +1534,7 @@ class WDBaseDataType(object):
     '''
 
     def __init__(self, value, snak_type, data_type, is_reference, is_qualifier, references, qualifiers, rank, prop_nr,
-                 check_qualifier_equality, if_exist):
+                 check_qualifier_equality, ref_handler, if_exist):
         """
         Constructor, will be called by all data types.
         :param value: Data value of the WD data snak
@@ -1577,6 +1558,13 @@ class WDBaseDataType(object):
         :type rank: A string of one of three allowed values: 'normal', 'deprecated', 'preferred'
         :param prop_nr: The WD property number a WD snak belongs to
         :type prop_nr: A string with a prefixed 'P' and several digits e.g. 'P715' (Drugbank ID)
+        :param ref_handler: This parameter defines a function that will manage the reference handling in a custom
+        manner. This argument should be a function handle that accepts two arguments, the old/current statement
+        (first argument) and new/proposed/to be written statement (second argument), both of type: a subclass of
+        WDBaseDataType. The function should return an new item that is the item to be written. The item's values
+        properties or qualifiers should not be modified; only references. This function is also used in fastrun mode.
+        This will only be used if the ref_mode is set to "CUSTOM".
+        :type ref_handler: function
         :return:
         """
         self.value = value
@@ -1591,9 +1579,8 @@ class WDBaseDataType(object):
         self.is_qualifier = is_qualifier
         self.rank = rank
         self.check_qualifier_equality = check_qualifier_equality
+        self.ref_handler = ref_handler
         self.if_exist = if_exist
-
-        self._statement_ref_mode = 'KEEP_GOOD'
 
         if not references:
             self.references = list()
@@ -1629,7 +1616,9 @@ class WDBaseDataType(object):
         if (len(self.references) > 0 or len(self.qualifiers) > 0) and (self.is_qualifier or self.is_reference):
             raise ValueError('Qualifiers or references cannot have references')
 
-        # TODO Test if value='' or value=None and snak_type is value then raise error
+        if self.ref_handler:
+            assert callable(self.ref_handler)
+
         if not self.value and self.snak_type == 'value':
             raise ValueError('Value can\'t be empty and with a snap_type of value at the same time')
 
@@ -1684,19 +1673,6 @@ class WDBaseDataType(object):
         assert (value is True or value is False)
         print('DEPRECATED!!! Calls to overwrite_references should not be used')
         self._overwrite_references = value
-
-    @property
-    def statement_ref_mode(self):
-        return self._statement_ref_mode
-
-    @statement_ref_mode.setter
-    def statement_ref_mode(self, value):
-        """Set the reference mode for a statement, always overrides the global reference state."""
-        valid_values = ['STRICT_KEEP', 'STRICT_KEEP_APPEND', 'STRICT_OVERWRITE', 'KEEP_GOOD', 'CUSTOM']
-        if value not in valid_values:
-            raise ValueError('Not an allowed reference mode, allowed values {}'.format(' '.join(valid_values)))
-
-        self._statement_ref_mode = value
 
     def get_value(self):
         return self.value
