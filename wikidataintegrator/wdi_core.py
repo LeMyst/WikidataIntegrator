@@ -50,7 +50,7 @@ class WDItemEngine(object):
                  wikibase_url=None, concept_base_uri=None, fast_run=False, fast_run_base_filter=None,
                  fast_run_use_refs=False, search_only=False, item_data=None, user_agent=None, core_props=None,
                  core_prop_match_thresh=0.66, property_constraint_pid=None, distinct_values_constraint_qid=None,
-                 debug=False):
+                 fast_run_case_insensitive=False, debug=False):
         """
         constructor
         :param wd_item_id: Wikidata item id
@@ -132,6 +132,7 @@ class WDItemEngine(object):
         self.fast_run = fast_run
         self.fast_run_base_filter = fast_run_base_filter
         self.fast_run_use_refs = fast_run_use_refs
+        self.fast_run_case_insensitive = fast_run_case_insensitive
         self.search_only = search_only
         self.item_data = item_data
         self.user_agent = config['USER_AGENT_DEFAULT'] if user_agent is None else user_agent
@@ -159,14 +160,18 @@ class WDItemEngine(object):
             # if the "equivalent property" and "mappingRelation" property are not found, we can't know what the
             # QIDs for the mapping relation types are
             self.mrh = None
-            warnings.warn("mapping relation types are being ignored")
+            if self.debug:
+                warnings.warn("mapping relation types are being ignored")
 
         if self.fast_run:
             print('fast_run enabled')
             self.init_fastrun()
             if self.debug:
                 if self.require_write:
-                    print('fastrun skipped, because no full data match, updating item...')
+                    if search_only:
+                        print('successful fastrun, search_only mode, we can\'t determine if data is up to date')
+                    else:
+                        print('successful fastrun, because no full data match you need to update the item...')
                 else:
                     print('successful fastrun, no write to Wikidata required')
 
@@ -248,10 +253,13 @@ class WDItemEngine(object):
             self.data = []
 
     def init_fastrun(self):
+        # We search if we already have a FastRunContainer with the same parameters to re-use it
         for c in WDItemEngine.fast_run_store:
             if (c.base_filter == self.fast_run_base_filter) and (c.use_refs == self.fast_run_use_refs) and \
                     (c.sparql_endpoint_url == self.sparql_endpoint_url):
                 self.fast_run_container = c
+                if self.debug:
+                    print('Found an already existing FastRunContainer')
 
         if not self.fast_run_container:
             self.fast_run_container = FastRunContainer(base_filter=self.fast_run_base_filter,
@@ -262,14 +270,21 @@ class WDItemEngine(object):
                                                        wikibase_url=self.wikibase_url,
                                                        concept_base_uri=self.concept_base_uri,
                                                        use_refs=self.fast_run_use_refs,
+                                                       case_insensitive=self.fast_run_case_insensitive,
                                                        debug=self.debug)
             WDItemEngine.fast_run_store.append(self.fast_run_container)
 
-        self.require_write = self.fast_run_container.write_required(self.data, cqid=self.wd_item_id)
-
-        # set item id based on fast run data
-        if not self.require_write and not self.wd_item_id:
-            self.wd_item_id = self.fast_run_container.current_qid
+        if not self.search_only:
+            self.require_write = self.fast_run_container.write_required(self.data, append_props=self.append_value,
+                                                                        cqid=self.wd_item_id)
+            # set item id based on fast run data
+            if not self.require_write and not self.wd_item_id:
+                self.wd_item_id = self.fast_run_container.current_qid
+        else:
+            self.fast_run_container.load_item(self.data)
+            # set item id based on fast run data
+            if not self.wd_item_id:
+                self.wd_item_id = self.fast_run_container.current_qid
 
     def get_wd_entity(self):
         """
@@ -1527,8 +1542,6 @@ class JsonParser(object):
                         jsn = ref_block['snaks'][prop]
 
                         for prop_ref in jsn:
-                            # pprint.pprint(prop_ref)
-
                             ref_class = self.get_class_representation(prop_ref)
                             ref_class.is_reference = True
                             ref_class.snak_type = prop_ref['snaktype']
