@@ -340,6 +340,7 @@ class FastRunContainer(object):
             count = int(r[0]['c']['value'])
             num_pages = (int(count) // page_size) + 1
             print("Query {}: {}/{}".format(prop_nr, page_count, num_pages))
+
         while True:
             query = """
                 PREFIX wd: <**wikibase_url**/entity/>

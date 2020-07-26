@@ -36,7 +36,6 @@ __license__ = 'MIT'
 
 
 class WDItemEngine(object):
-    databases = {}
     pmids = []
 
     log_file_name = ''
@@ -611,18 +610,12 @@ class WDItemEngine(object):
         # this is the number of core_ids in self.data that are also on the item
         count_existing_ids = len([x for x in self.data if x.get_prop_nr() in item_core_props])
 
-        pprint(item_core_props)
         core_prop_match_count = 0
         for new_stat in self.data:
-            print('a')
-            pprint(new_stat)
             for stat in self.statements:
-                print('b')
-                pprint(stat)
                 if (new_stat.get_prop_nr() == stat.get_prop_nr()) and (new_stat.get_value() == stat.get_value()) \
                         and (new_stat.get_prop_nr() in item_core_props):
                     core_prop_match_count += 1
-        print('{} {} {}'.format(core_prop_match_count, count_existing_ids, self.core_prop_match_thresh))
 
         if core_prop_match_count < count_existing_ids * self.core_prop_match_thresh:
             existing_core_pv = defaultdict(set)
@@ -1891,7 +1884,7 @@ class WDString(WDBaseDataType):
     DTYPE = 'string'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The string to be used as the value
@@ -1915,7 +1908,7 @@ class WDString(WDBaseDataType):
         super(WDString, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                       check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -1945,7 +1938,7 @@ class WDMath(WDBaseDataType):
     DTYPE = 'math'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The string to be used as the value
@@ -1969,7 +1962,7 @@ class WDMath(WDBaseDataType):
         super(WDMath, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                      is_qualifier=is_qualifier, references=references, qualifiers=qualifiers,
                                      rank=rank, prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality,
-                                     if_exist=if_exist)
+                                     ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -1999,7 +1992,7 @@ class WDExternalID(WDBaseDataType):
     DTYPE = 'external-id'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The string to be used as the value
@@ -2023,7 +2016,7 @@ class WDExternalID(WDBaseDataType):
         super(WDExternalID, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                            is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                            qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                           check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                           check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2065,7 +2058,7 @@ class WDItemID(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD item ID to serve as the value
@@ -2089,7 +2082,7 @@ class WDItemID(WDBaseDataType):
         super(WDItemID, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                       check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2151,7 +2144,7 @@ class WDProperty(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD property number to serve as a value
@@ -2175,7 +2168,7 @@ class WDProperty(WDBaseDataType):
         super(WDProperty, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                          is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                          qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                         check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                         check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2224,7 +2217,7 @@ class WDTime(WDBaseDataType):
 
     def __init__(self, time, prop_nr, precision=11, timezone=0, calendarmodel=None,
                  concept_base_uri=None, is_reference=False, is_qualifier=False, snak_type='value',
-                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param time: A time representation string in the following format: '+%Y-%m-%dT%H:%M:%SZ'
@@ -2263,7 +2256,7 @@ class WDTime(WDBaseDataType):
         super(WDTime, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                      is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
                                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality,
-                                     if_exist=if_exist)
+                                     ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2310,7 +2303,7 @@ class WDUrl(WDBaseDataType):
     DTYPE = 'url'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The URL to be used as the value
@@ -2334,7 +2327,7 @@ class WDUrl(WDBaseDataType):
         super(WDUrl, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                     is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
                                     prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality,
-                                    if_exist=if_exist)
+                                    ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2371,7 +2364,7 @@ class WDMonolingualText(WDBaseDataType):
     DTYPE = 'monolingualtext'
 
     def __init__(self, value, prop_nr, language='en', is_reference=False, is_qualifier=False, snak_type='value',
-                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 references=None, qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The language specific string to be used as the value
@@ -2400,7 +2393,7 @@ class WDMonolingualText(WDBaseDataType):
         super(WDMonolingualText, self) \
             .__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                       is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2435,7 +2428,7 @@ class WDQuantity(WDBaseDataType):
 
     def __init__(self, value, prop_nr, upper_bound=None, lower_bound=None, unit='1', is_reference=False,
                  is_qualifier=False, snak_type='value', references=None, qualifiers=None, rank='normal',
-                 check_qualifier_equality=True, concept_base_uri=None, if_exist='REPLACE'):
+                 check_qualifier_equality=True, concept_base_uri=None, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The quantity value
@@ -2473,7 +2466,7 @@ class WDQuantity(WDBaseDataType):
         super(WDQuantity, self).__init__(value=v, snak_type=snak_type, data_type=self.DTYPE,
                                          is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                          qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                         check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                         check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(v)
 
@@ -2556,7 +2549,7 @@ class WDCommonsMedia(WDBaseDataType):
     DTYPE = 'commonsMedia'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The media file name from Wikimedia commons to be used as the value
@@ -2580,7 +2573,7 @@ class WDCommonsMedia(WDBaseDataType):
         super(WDCommonsMedia, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                              is_reference=is_reference, is_qualifier=is_qualifier,
                                              references=references, qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                             check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                             check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2610,7 +2603,7 @@ class WDGlobeCoordinate(WDBaseDataType):
     def __init__(self, latitude, longitude, precision, prop_nr, globe=None,
                  concept_base_uri=None, is_reference=False, is_qualifier=False,
                  snak_type='value', references=None, qualifiers=None, rank='normal', check_qualifier_equality=True,
-                 if_exist='REPLACE'):
+                 ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param latitude: Latitute in decimal format
@@ -2646,7 +2639,7 @@ class WDGlobeCoordinate(WDBaseDataType):
         super(WDGlobeCoordinate, self) \
             .__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                       is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                      prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value)
 
@@ -2688,7 +2681,7 @@ class WDGeoShape(WDBaseDataType):
     DTYPE = 'geo-shape'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The GeoShape map file name in Wikimedia Commons to be linked
@@ -2712,7 +2705,7 @@ class WDGeoShape(WDBaseDataType):
         super(WDGeoShape, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                          is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                          qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                         check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                         check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2749,7 +2742,7 @@ class WDMusicalNotation(WDBaseDataType):
     DTYPE = 'musical-notation'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: Values for that data type are strings describing music following LilyPond syntax.
@@ -2774,7 +2767,7 @@ class WDMusicalNotation(WDBaseDataType):
                                                 is_reference=is_reference, is_qualifier=is_qualifier,
                                                 references=references,
                                                 qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                                check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                                check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2804,7 +2797,7 @@ class WDTabularData(WDBaseDataType):
     DTYPE = 'tabular-data'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: Reference to tabular data file on Wikimedia Commons.
@@ -2828,7 +2821,7 @@ class WDTabularData(WDBaseDataType):
         super(WDTabularData, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                             is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                             qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                            check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                            check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2877,7 +2870,7 @@ class WDLexeme(WDBaseDataType):
     '''
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD lexeme number to serve as a value
@@ -2901,7 +2894,7 @@ class WDLexeme(WDBaseDataType):
         super(WDLexeme, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                        is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                        qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                       check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                       check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2949,7 +2942,7 @@ class WDForm(WDBaseDataType):
     DTYPE = 'wikibase-form'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD form number to serve as a value using the format "L<Lexeme ID>-F<Form ID>" (example: L252248-F2)
@@ -2973,7 +2966,7 @@ class WDForm(WDBaseDataType):
         super(WDForm, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                      is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                      qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                     check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                     check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -3015,7 +3008,7 @@ class WDSense(WDBaseDataType):
     DTYPE = 'wikibase-sense'
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
-                 qualifiers=None, rank='normal', check_qualifier_equality=True, if_exist='REPLACE'):
+                 qualifiers=None, rank='normal', check_qualifier_equality=True, ref_handler=None, if_exist='REPLACE'):
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD form number to serve as a value using the format "L<Lexeme ID>-F<Form ID>" (example: L252248-F2)
@@ -3039,7 +3032,7 @@ class WDSense(WDBaseDataType):
         super(WDSense, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
                                       is_reference=is_reference, is_qualifier=is_qualifier, references=references,
                                       qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
-                                      check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                      check_qualifier_equality=check_qualifier_equality, ref_handler=ref_handler, if_exist=if_exist)
 
         self.set_value(value=value)
 
