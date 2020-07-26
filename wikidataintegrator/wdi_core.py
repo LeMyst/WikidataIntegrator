@@ -7,7 +7,6 @@ import re
 import time
 import warnings
 from collections import defaultdict
-from pprint import pprint
 from typing import List
 
 import pandas as pd
@@ -1348,30 +1347,6 @@ class WDItemEngine(object):
 
         return merge_reply.json()
 
-    # TODO: adapt this function for wikibase (if possible)
-    @classmethod
-    def _init_ref_system(cls, sparql_endpoint_url=None):
-        db_query = '''
-        SELECT DISTINCT ?db ?wd_prop WHERE {
-            {?db wdt:P31 wd:Q2881060 . } UNION
-            {?db wdt:P31 wd:Q4117139 . } UNION
-            {?db wdt:P31 wd:Q8513 . } UNION
-            {?db wdt:P31 wd:Q324254 .}
-
-            OPTIONAL {
-              ?db wdt:P1687 ?wd_prop .
-            }
-        }
-        '''
-
-        for x in cls.execute_sparql_query(db_query, endpoint=sparql_endpoint_url)['results']['bindings']:
-            db_qid = x['db']['value'].split('/')[-1]
-            if db_qid not in cls.databases:
-                cls.databases.update({db_qid: []})
-
-            if 'wd_prop' in x:
-                cls.databases[db_qid].append(x['wd_prop']['value'].split('/')[-1])
-
     @staticmethod
     def delete_item(item, reason, login, mediawiki_api_url=None, user_agent=None):
         """
@@ -1418,28 +1393,28 @@ class WDItemEngine(object):
         r = requests.post(url=mediawiki_api_url, data=params, cookies=login.get_edit_cookie(), headers=headers)
         print(r.json())
 
-    ## References
+    # References
     @classmethod
-    def count_references(self, pid, user_agent=config['USER_AGENT_DEFAULT']):
+    def count_references(cls, prop_id):
         counts = dict()
-        for claim in self.get_wd_json_representation()["claims"][prop_id]:
-            counts[claim["id"]] = len(claim["references"])
+        for claim in cls.get_wd_json_representation()['claims'][prop_id]:
+            counts[claim['id']] = len(claim['references'])
         return counts
 
     @classmethod
-    def get_reference_properties(self, prop_id, user_agent=config['USER_AGENT_DEFAULT']):
+    def get_reference_properties(cls, prop_id):
         references = []
-        for statements in self.get_wd_json_representation()["claims"][prop_id]:
-            for reference in statements["references"]:
-                references.append(reference["snaks"].keys())
+        for statements in cls.get_wd_json_representation()['claims'][prop_id]:
+            for reference in statements['references']:
+                references.append(reference['snaks'].keys())
         return references
 
     @classmethod
-    def get_qualifier_properties(self, prop_id, user_agent=config['USER_AGENT_DEFAULT']):
+    def get_qualifier_properties(cls, prop_id):
         qualifiers = []
-        for statements in self.get_wd_json_representation()["claims"][prop_id]:
-            for reference in statements["qualifiers"]:
-                qualifiers.append(reference["snaks"].keys())
+        for statements in cls.get_wd_json_representation()['claims'][prop_id]:
+            for reference in statements['qualifiers']:
+                qualifiers.append(reference['snaks'].keys())
         return qualifiers
 
     @classmethod
@@ -1466,9 +1441,8 @@ class WDItemEngine(object):
         SubCls.__name__ = name
         return SubCls
 
-    """A mixin implementing a simple __repr__."""
-
     def __repr__(self):
+        """A mixin implementing a simple __repr__."""
         return "<{klass} @{id:x} {attrs}>".format(
             klass=self.__class__.__name__,
             id=id(self) & 0xFFFFFF,
