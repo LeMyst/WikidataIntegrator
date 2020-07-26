@@ -48,8 +48,7 @@ class WDItemEngine(object):
 
     def __init__(self, wd_item_id='', new_item=False, data=None, mediawiki_api_url=None, sparql_endpoint_url=None,
                  wikibase_url=None, concept_base_uri=None, fast_run=False, fast_run_base_filter=None,
-                 fast_run_use_refs=False, ref_handler=None, global_ref_mode='KEEP_GOOD', good_refs=None,
-                 keep_good_ref_statements=False, search_only=False, item_data=None, user_agent=None, core_props=None,
+                 fast_run_use_refs=False, search_only=False, item_data=None, user_agent=None, core_props=None,
                  core_prop_match_thresh=0.66, property_constraint_pid=None, distinct_values_constraint_qid=None,
                  debug=False):
         """
@@ -133,10 +132,6 @@ class WDItemEngine(object):
         self.fast_run = fast_run
         self.fast_run_base_filter = fast_run_base_filter
         self.fast_run_use_refs = fast_run_use_refs
-        self.ref_handler = ref_handler
-        self.global_ref_mode = global_ref_mode
-        self.good_refs = good_refs
-        self.keep_good_ref_statements = keep_good_ref_statements
         self.search_only = search_only
         self.item_data = item_data
         self.user_agent = config['USER_AGENT_DEFAULT'] if user_agent is None else user_agent
@@ -152,11 +147,6 @@ class WDItemEngine(object):
         self.lastrevid = None  # stores last revisionid after a write occurs
 
         self.debug = debug
-
-        if self.ref_handler:
-            assert callable(self.ref_handler)
-        if self.global_ref_mode == "CUSTOM" and self.ref_handler is None:
-            raise ValueError("If using a custom ref mode, ref_handler must be set")
 
         if (core_props is None) and (self.sparql_endpoint_url not in self.DISTINCT_VALUE_PROPS):
             self.get_distinct_value_props(self.sparql_endpoint_url, self.wikibase_url, self.property_constraint_pid,
@@ -262,7 +252,6 @@ class WDItemEngine(object):
             if (c.base_filter == self.fast_run_base_filter) and (c.use_refs == self.fast_run_use_refs) and \
                     (c.sparql_endpoint_url == self.sparql_endpoint_url):
                 self.fast_run_container = c
-                self.fast_run_container.ref_handler = self.ref_handler
 
         if not self.fast_run_container:
             self.fast_run_container = FastRunContainer(base_filter=self.fast_run_base_filter,
@@ -273,7 +262,6 @@ class WDItemEngine(object):
                                                        wikibase_url=self.wikibase_url,
                                                        concept_base_uri=self.concept_base_uri,
                                                        use_refs=self.fast_run_use_refs,
-                                                       ref_handler=self.ref_handler,
                                                        debug=self.debug)
             WDItemEngine.fast_run_store.append(self.fast_run_container)
 
