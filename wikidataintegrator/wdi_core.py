@@ -166,24 +166,15 @@ class WDItemEngine(object):
         if self.fast_run:
             print('fast_run enabled')
             self.init_fastrun()
-            if self.debug:
-                if self.require_write:
-                    if search_only:
-                        print('successful fastrun, search_only mode, we can\'t determine if data is up to date')
-                    else:
-                        print('successful fastrun, because no full data match you need to update the item...')
-                else:
-                    print('successful fastrun, no write to Wikidata required')
+
+        # TODO Call a custom write_required function to check if a write is needed
 
         if self.wd_item_id != '' and self.create_new_item == True:
-            print('a')
             raise IDMissingError('Cannot create a new item, when a wikidata identifier is given')
-        elif self.new_item == True and len(self.data) > 0:
-            print('b')
+        elif self.new_item and len(self.data) > 0:
             self.create_new_item = True
             self.__construct_claim_json()
         elif self.require_write:
-            print('d')
             self.init_data_load()
 
     @classmethod
@@ -226,14 +217,10 @@ class WDItemEngine(object):
 
     def init_data_load(self):
         if self.wd_item_id and self.item_data:
-            print('e')
             self.wd_json_representation = self.parse_wd_json(self.item_data)
         elif self.wd_item_id:
-            print('f')
             self.wd_json_representation = self.get_wd_entity()
-            pprint(self.wd_json_representation)
         else:
-            print('g')
             qids_by_props = ''
             try:
                 qids_by_props = self.__select_wd_item()
@@ -246,10 +233,8 @@ class WDItemEngine(object):
                 self.__check_integrity()
 
         if not self.search_only:
-            print('h')
             self.__construct_claim_json()
         else:
-            print('i')
             self.data = []
 
     def init_fastrun(self):
@@ -274,17 +259,10 @@ class WDItemEngine(object):
                                                        debug=self.debug)
             WDItemEngine.fast_run_store.append(self.fast_run_container)
 
-        if not self.search_only:
-            self.require_write = self.fast_run_container.write_required(self.data, append_props=self.append_value,
-                                                                        cqid=self.wd_item_id)
-            # set item id based on fast run data
-            if not self.require_write and not self.wd_item_id:
-                self.wd_item_id = self.fast_run_container.current_qid
-        else:
-            self.fast_run_container.load_item(self.data)
-            # set item id based on fast run data
-            if not self.wd_item_id:
-                self.wd_item_id = self.fast_run_container.current_qid
+        self.fast_run_container.load_item(self.data)
+        # set item id based on fast run data
+        if not self.wd_item_id:
+            self.wd_item_id = self.fast_run_container.current_qid
 
     def get_wd_entity(self):
         """
@@ -442,6 +420,8 @@ class WDItemEngine(object):
                 # if mrt_pid is "PXXX", this is fine, because the part of the SPARQL query using it is optional
                 query = statement.sparql_query.format(wb_url=self.wikibase_url, mrt_pid=mrt_pid, pid=wd_property,
                                                       value=data_point.replace("'", r"\'"))
+                if self.debug:
+                    print(query)
                 results = WDItemEngine.execute_sparql_query(query=query, endpoint=self.sparql_endpoint_url)
 
                 for i in results['results']['bindings']:
@@ -524,19 +504,17 @@ class WDItemEngine(object):
                 equal_items = [stat.get_prop_nr() == x.get_prop_nr() and
                                stat.get_value() == x.get_value() for x in prop_data]
                 if True not in equal_items:
-                    raise ValueError('Can\'t update property \'{}\' with value \'{}\': This value doesn\'t exist'.format(stat.get_prop_nr(), stat.get_value()))
+                    raise ValueError(
+                        'Can\'t update property \'{}\' with value \'{}\': This value doesn\'t exist'.format(
+                            stat.get_prop_nr(), stat.get_value()))
                 elif equal_items.count(True) > 1:
                     raise ValueError('Can\'t update property \'{}\' with value \'{}\': The value exist multiple times')
                 else:
                     for x in prop_data:
-                        print('n')
                         if stat.get_prop_nr() == x.get_prop_nr() and stat.get_value() == x.get_value():
-                            print('o')
                             for qualifier in stat.qualifiers:
-                                print('p')
                                 handle_datatype(x.qualifiers, qualifier)
-                            #for reference_list in stat.references:
-                            #    print('q')
+                            # for reference_list in stat.references:
                             #    handle_datatype(x.references, reference)
 
             # TODO Replace all value where if_exist is REPLACE
@@ -550,8 +528,6 @@ class WDItemEngine(object):
 
             elif stat.if_exist == 'KEEP':
                 equal_items = [stat.get_prop_nr() == x.get_prop_nr() for x in prop_data]
-                pprint(prop_data)
-                pprint(equal_items)
                 if True not in equal_items:
                     if self.debug:
                         print('No property {} already exist. Adding the claim'.format(stat.get_prop_nr()))
@@ -570,8 +546,6 @@ class WDItemEngine(object):
 
         # sort the incoming data according to the WD property number
         self.data.sort(key=lambda z: z.get_prop_nr().lower())
-        print('i')
-        pprint(self.data)
 
         if self.create_new_item:
             self.statements = copy.copy(self.data)
@@ -588,11 +562,7 @@ class WDItemEngine(object):
 
                 handle_datatype(self.statements, stat)
 
-        print('l')
-        pprint(self.statements)
-
         for item in copy.deepcopy(self.statements):
-            # pprint(item)
             if hasattr(item, 'remove'):
                 if self.debug:
                     print('Remove property {}'.format(item.get_prop_nr()))
@@ -605,10 +575,6 @@ class WDItemEngine(object):
             if prop_nr not in self.wd_json_representation['claims']:
                 self.wd_json_representation['claims'][prop_nr] = []
             self.wd_json_representation['claims'][prop_nr].append(stat.get_json_representation())
-
-        print('m')
-        pprint(self.wd_json_representation['claims'])
-        pprint(self.statements)
 
     def update(self, data):
         """
@@ -2346,7 +2312,8 @@ class WDTime(WDBaseDataType):
 
         super(WDTime, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                      is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                                     prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                     prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality,
+                                     if_exist=if_exist)
 
         self.set_value(value=value)
 
@@ -2416,7 +2383,8 @@ class WDUrl(WDBaseDataType):
 
         super(WDUrl, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE, is_reference=is_reference,
                                     is_qualifier=is_qualifier, references=references, qualifiers=qualifiers, rank=rank,
-                                    prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality, if_exist=if_exist)
+                                    prop_nr=prop_nr, check_qualifier_equality=check_qualifier_equality,
+                                    if_exist=if_exist)
 
         self.set_value(value)
 
