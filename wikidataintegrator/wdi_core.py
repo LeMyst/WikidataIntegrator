@@ -219,7 +219,6 @@ class WDItemEngine(object):
             if (c.base_filter == self.fast_run_base_filter) and (c.use_refs == self.fast_run_use_refs) and \
                     (c.sparql_endpoint_url == self.sparql_endpoint_url):
                 self.fast_run_container = c
-                self.fast_run_container.ref_handler = self.ref_handler
                 self.fast_run_container.current_qid = ''
                 self.fast_run_container.base_data_type = WDBaseDataType
                 self.fast_run_container.engine = self.__class__
