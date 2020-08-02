@@ -94,28 +94,28 @@ class TestFastRun(unittest.TestCase):
     
     """
 
-    # def test_fast_run(self):
-    #     qid = 'Q27552312'
-    #
-    #     statements = [
-    #         wdi_core.WDExternalID(value='P40095', prop_nr='P352'),
-    #         wdi_core.WDExternalID(value='YER158C', prop_nr='P705')
-    #     ]
-    #
-    #     frc = wdi_fastrun.FastRunContainer(base_filter={'P352': '', 'P703': 'Q27510868'},
-    #                                        base_data_type=wdi_core.WDBaseDataType, engine=wdi_core.WDItemEngine)
-    #
-    #     fast_run_result = frc.write_required(data=statements)
-    #
-    #     if fast_run_result:
-    #         message = 'fastrun failed'
-    #     else:
-    #         message = 'successful fastrun'
-    #     print(fast_run_result, message)
-    #
-    #     # here, fastrun should succeed, if not, test failed
-    #     # if fast_run_result:
-    #     #    raise ValueError
+    def test_fast_run(self):
+        qid = 'Q27552312'
+
+        statements = [
+            wdi_core.WDExternalID(value='P40095', prop_nr='P352'),
+            wdi_core.WDExternalID(value='YER158C', prop_nr='P705')
+        ]
+
+        frc = wdi_fastrun.FastRunContainer(base_filter={'P352': '', 'P703': 'Q27510868'},
+                                           base_data_type=wdi_core.WDBaseDataType, engine=wdi_core.WDItemEngine)
+
+        fast_run_result = frc.write_required(data=statements)
+
+        if fast_run_result:
+            message = 'fastrun failed'
+        else:
+            message = 'successful fastrun'
+        print(fast_run_result, message)
+
+        # here, fastrun should succeed, if not, test failed
+        # if fast_run_result:
+        #    raise ValueError
 
     def test_fastrun_label(self):
         # tests fastrun label, description and aliases, and label in another language
