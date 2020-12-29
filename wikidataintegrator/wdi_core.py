@@ -11,9 +11,9 @@ from typing import List
 
 import pandas as pd
 import requests
-from pyshex import ShExEvaluator
+#from pyshex import ShExEvaluator
 from rdflib import Graph
-from shexer.shaper import Shaper
+#from shexer.shaper import Shaper
 
 from wikidataintegrator.wdi_backoff import wdi_backoff
 from wikidataintegrator.wdi_config import config
@@ -22,9 +22,9 @@ from wikidataintegrator.wdi_helpers import MappingRelationHelper
 
 """
 Authors:
-  Andra Waagmeester (andra' at ' micelio.be)
-  Gregory Stupp (stuppie' at 'gmail.com )
-  Sebastian Burgstaller (sebastian.burgstaller' at 'gmail.com
+Andra Waagmeester (andra' at ' micelio.be)
+Gregory Stupp (stuppie' at 'gmail.com )
+Sebastian Burgstaller (sebastian.burgstaller' at 'gmail.com
 
 This file is part of the WikidataIntegrator.
 
@@ -32,6 +32,175 @@ This file is part of the WikidataIntegrator.
 
 __author__ = 'Andra Waagmeester, Gregory Stupp, Sebastian Burgstaller '
 __license__ = 'MIT'
+
+class WDFunctionsEngine(object):
+    def __init__(self, mediawiki_api_url=None, sparql_endpoint_url=None,):
+        self.mediawiki_api_url = config['MEDIAWIKI_API_URL'] if mediawiki_api_url is None else mediawiki_api_url
+        self.sparql_endpoint_url = config['SPARQL_ENDPOINT_URL'] if sparql_endpoint_url is None else sparql_endpoint_url
+
+    @staticmethod
+    def get_rdf(wd_item_id='', format="turtle", mediawiki_api_url=None):
+
+        """
+        function to get RDF of a Wikidata item
+
+        :param wd_item_id='': Wikidata identifier to extract the RDF of
+        :param format RDF from to return takes (turtle, ntriples, rdfxml,)
+        :param mediawiki_api_url: default to wikidata's api, but can be changed to any wikibase
+
+        :return:
+        """
+        localcopy = Graph()
+        localcopy.parse(config["CONCEPT_BASE_URI"] + wd_item_id + ".ttl")
+        return localcopy.serialize(format=format)
+
+    @staticmethod
+    def get_linked_by(qid, mediawiki_api_url=None):
+        """
+            :param qid: Wikidata identifier to which other wikidata items link
+            :param mediawiki_api_url: default to wikidata's api, but can be changed to any wikibase
+            :return:
+        """
+
+        mediawiki_api_url = config['MEDIAWIKI_API_URL'] if mediawiki_api_url is None else mediawiki_api_url
+
+        linkedby = []
+        whatlinkshere = json.loads(requests.get(
+            mediawiki_api_url + "?action=query&list=backlinks&format=json&bllimit=500&bltitle=" + qid).text)
+        for link in whatlinkshere["query"]["backlinks"]:
+            if link["title"].startswith("Q"):
+                linkedby.append(link["title"])
+        while 'continue' in whatlinkshere.keys():
+            whatlinkshere = json.loads(requests.get(
+                mediawiki_api_url + "?action=query&list=backlinks&blcontinue=" +
+                whatlinkshere['continue']['blcontinue'] + "&format=json&bllimit=500&bltitle=" + qid).text)
+            for link in whatlinkshere["query"]["backlinks"]:
+                if link["title"].startswith("Q"):
+                    linkedby.append(link["title"])
+        return linkedby
+
+    @staticmethod
+    @wdi_backoff()
+    def execute_sparql_query(query, prefix=None, endpoint=None, user_agent=None, as_dataframe=False, max_retries=1000, retry_after=60):
+
+        """
+        Static method which can be used to execute any SPARQL query
+
+        :param prefix: The URI prefixes required for an endpoint, default is the Wikidata specific prefixes
+        :param query: The actual SPARQL query string
+        :param endpoint: The URL string for the SPARQL endpoint. Default is the URL for the Wikidata SPARQL endpoint
+        :param user_agent: Set a user agent string for the HTTP header to let the WDQS know who you are.
+        :param as_dataframe: Return result as pandas dataframe
+        :type user_agent: str
+        :param max_retries: The number time this function should retry in case of header reports.
+        :param retry_after: the number of seconds should wait upon receiving either an error code or the WDQS is not reachable.
+        :return: The results of the query are returned in JSON format
+        """
+
+        sparql_endpoint_url = config['SPARQL_ENDPOINT_URL'] if endpoint is None else endpoint
+        user_agent = config['USER_AGENT_DEFAULT'] if user_agent is None else user_agent
+
+        if prefix:
+            query = prefix + '\n' + query
+
+        params = {
+            'query': '#Tool: wdi_core fastrun\n' + query,
+            'format': 'json'
+        }
+
+        headers = {
+            'Accept': 'application/sparql-results+json',
+            'User-Agent': user_agent
+        }
+        response = None
+
+        for n in range(max_retries):
+            try:
+                response = requests.post(sparql_endpoint_url, params=params, headers=headers)
+            except requests.exceptions.ConnectionError as e:
+                print("Connection error: {}. Sleeping for {} seconds.".format(e, retry_after))
+                time.sleep(retry_after)
+                continue
+            if response.status_code == 503:
+                print("service unavailable. sleeping for {} seconds".format(retry_after))
+                time.sleep(retry_after)
+                continue
+            if response.status_code == 429:
+                if "retry-after" in response.headers.keys():
+                    retry_after = response.headers["retry-after"]
+                print("service unavailable. sleeping for {} seconds".format(retry_after))
+                time.sleep(retry_after)
+                continue
+            response.raise_for_status()
+            results = response.json()
+
+            if as_dataframe:
+                return WDItemEngine._sparql_query_result_to_df(results)
+            else:
+                return results
+
+    @staticmethod
+    def _sparql_query_result_to_df(results):
+
+        def parse_value(item):
+            if item.get("datatype") == "http://www.w3.org/2001/XMLSchema#decimal":
+                return float(item['value'])
+            if item.get("datatype") == "http://www.w3.org/2001/XMLSchema#integer":
+                return int(item['value'])
+            if item.get("datatype") == "http://www.w3.org/2001/XMLSchema#dateTime":
+                return datetime.datetime.strptime(item['value'], '%Y-%m-%dT%H:%M:%SZ')
+            return item['value']
+
+        results = results['results']['bindings']
+        results = [{k: parse_value(v) for k, v in item.items()} for item in results]
+        df = pd.DataFrame(results)
+        return df
+
+    @staticmethod
+    def delete_item(item, reason, login, mediawiki_api_url=None, user_agent=None):
+        """
+        Takes a list of items and posts them for deletion by Wikidata moderators, appends at the end of the deletion
+        request page.
+        :param item: a QID which should be deleted
+        :type item: string
+        :param reason: short text about the reason for the deletion request
+        :type reason: str
+        :param login: A WDI login object which contains username and password the edit should be performed with.
+        :type login: wdi_login.WDLogin
+        """
+
+        mediawiki_api_url = config['MEDIAWIKI_API_URL'] if mediawiki_api_url is None else mediawiki_api_url
+        user_agent = config['USER_AGENT_DEFAULT'] if user_agent is None else user_agent
+
+        params = {
+            'action': 'delete',
+            'title': 'Item:' + item,
+            'reason': reason,
+            'token': login.get_edit_token(),
+            'format': 'json'
+        }
+        headers = {
+            'User-Agent': user_agent
+        }
+        r = requests.post(url=mediawiki_api_url, data=params, cookies=login.get_edit_cookie(), headers=headers)
+        print(r.json())
+
+    @staticmethod
+    def delete_statement(statement_id, revision, login, mediawiki_api_url='https://www.wikidata.org/w/api.php',
+                         user_agent=config['USER_AGENT_DEFAULT']):
+        params = {
+            'action': 'wbremoveclaims',
+            'claim': statement_id,
+            'token': login.get_edit_token(),
+            'baserevid': revision,
+            'bot': True,
+            'format': 'json'
+        }
+        headers = {
+            'User-Agent': user_agent
+        }
+        r = requests.post(url=mediawiki_api_url, data=params, cookies=login.get_edit_cookie(), headers=headers)
+        print(r.json())
 
 
 class WDItemEngine(object):
@@ -57,65 +226,65 @@ class WDItemEngine(object):
         :param new_item: This parameter lets the user indicate if a new item should be created
         :type new_item: True or False
         :param data: a dictionary with WD property strings as keys and the data which should be written to
-            a WD item as the property values
+        a WD item as the property values
         :type data: List[WDBaseDataType]
         :param append_value: a list of properties where potential existing values should not be overwritten by the data
-            passed in the :parameter data.
+        passed in the :parameter data.
         :type append_value: list of property number strings
         :param fast_run: True if this item should be run in fastrun mode, otherwise False. User setting this to True
-            should also specify the fast_run_base_filter for these item types
+        should also specify the fast_run_base_filter for these item types
         :type fast_run: bool
         :param fast_run_base_filter: A property value dict determining the Wikidata property and the corresponding value
-            which should be used as a filter for this item type. Several filter criteria can be specified. The values
-            can be either Wikidata item QIDs, strings or empty strings if the value should be a variable in SPARQL.
-            Example: {'P352': '', 'P703': 'Q15978631'} if the basic common type of things this bot runs on is
-            human proteins (specified by Uniprot IDs (P352) and 'found in taxon' homo sapiens 'Q15978631').
+        which should be used as a filter for this item type. Several filter criteria can be specified. The values
+        can be either Wikidata item QIDs, strings or empty strings if the value should be a variable in SPARQL.
+        Example: {'P352': '', 'P703': 'Q15978631'} if the basic common type of things this bot runs on is
+        human proteins (specified by Uniprot IDs (P352) and 'found in taxon' homo sapiens 'Q15978631').
         :type fast_run_base_filter: dict
         :param fast_run_use_refs: If `True`, fastrun mode will consider references in determining if a statement should
-            be updated and written to Wikidata. Otherwise, only the value and qualifiers are used. Default: False
+        be updated and written to Wikidata. Otherwise, only the value and qualifiers are used. Default: False
         :type fast_run_use_refs: bool
         :param ref_handler: This parameter defines a function that will manage the reference handling in a custom
-            manner. This argument should be a function handle that accepts two arguments, the old/current statement
-            (first argument) and new/proposed/to be written statement (second argument), both of type: a subclass of
-            WDBaseDataType. The function should return an new item that is the item to be written. The item's values
-            properties or qualifiers should not be modified; only references. This function is also used in fastrun mode.
-            This will only be used if the ref_mode is set to "CUSTOM".
+        manner. This argument should be a function handle that accepts two arguments, the old/current statement
+        (first argument) and new/proposed/to be written statement (second argument), both of type: a subclass of
+        WDBaseDataType. The function should return an new item that is the item to be written. The item's values
+        properties or qualifiers should not be modified; only references. This function is also used in fastrun mode.
+        This will only be used if the ref_mode is set to "CUSTOM".
         :type ref_handler: function
         :param global_ref_mode: sets the reference handling mode for an item. Four modes are possible, 'STRICT_KEEP'
-            keeps all references as they are, 'STRICT_KEEP_APPEND' keeps the references as they are and appends
-            new ones. 'STRICT_OVERWRITE' overwrites all existing references for given. 'CUSTOM' will use the function
-            defined in ref_handler
+        keeps all references as they are, 'STRICT_KEEP_APPEND' keeps the references as they are and appends
+        new ones. 'STRICT_OVERWRITE' overwrites all existing references for given. 'CUSTOM' will use the function
+        defined in ref_handler
         :type global_ref_mode: str of value 'STRICT_KEEP', 'STRICT_KEEP_APPEND', 'STRICT_OVERWRITE', 'KEEP_GOOD', 'CUSTOM'
         :param good_refs: This parameter lets the user define blocks of good references. It is a list of dictionaries.
-            One block is a dictionary with  Wikidata properties as keys and potential values as the required value for
-            a property. There can be arbitrarily many key: value pairs in one reference block.
-            Example: [{'P248': 'Q905695', 'P352': None, 'P407': None, 'P1476': None, 'P813': None}]
-            This example contains one good reference block, stated in: Uniprot, Uniprot ID, title of Uniprot entry,
-            language of work and date when the information has been retrieved. A None type indicates that the value
-            varies from reference to reference. In this case, only the value for the Wikidata item for the
-            Uniprot database stays stable over all of these references. Key value pairs work here, as Wikidata
-            references can hold only one value for one property. The number of good reference blocks is not limited.
-            This parameter OVERRIDES any other reference mode set!!
+        One block is a dictionary with  Wikidata properties as keys and potential values as the required value for
+        a property. There can be arbitrarily many key: value pairs in one reference block.
+        Example: [{'P248': 'Q905695', 'P352': None, 'P407': None, 'P1476': None, 'P813': None}]
+        This example contains one good reference block, stated in: Uniprot, Uniprot ID, title of Uniprot entry,
+        language of work and date when the information has been retrieved. A None type indicates that the value
+        varies from reference to reference. In this case, only the value for the Wikidata item for the
+        Uniprot database stays stable over all of these references. Key value pairs work here, as Wikidata
+        references can hold only one value for one property. The number of good reference blocks is not limited.
+        This parameter OVERRIDES any other reference mode set!!
         :type good_refs: list containing dictionaries.
         :param keep_good_ref_statements: Do not delete any statement which has a good reference, either defined in the
-            good_refs list or by any other referencing mode.
+        good_refs list or by any other referencing mode.
         :type keep_good_ref_statements: bool
         :param search_only: If this flag is set to True, the data provided will only be used to search for the
-            corresponding Wikidata item, but no actual data updates will performed. This is useful, if certain states or
-            values on the target item need to be checked before certain data is written to it. In order to write new
-            data to the item, the method update() will take data, modify the Wikidata item and a write() call will
-            then perform the actual write to Wikidata.
+        corresponding Wikidata item, but no actual data updates will performed. This is useful, if certain states or
+        values on the target item need to be checked before certain data is written to it. In order to write new
+        data to the item, the method update() will take data, modify the Wikidata item and a write() call will
+        then perform the actual write to Wikidata.
         :type search_only: bool
         :param item_data: A Python JSON object corresponding to the Wikidata item in wd_item_id. This can be used in
-            conjunction with wd_item_id in order to provide raw data.
+        conjunction with wd_item_id in order to provide raw data.
         :param user_agent: The user agent string to use when making http requests
         :type user_agent: str
         :param core_props: Core properties are used to retrieve a Wikidata item based on `data` if a `wd_item_id` is
-            not given. This is a set of PIDs to use. If None, all Wikidata properties with a distinct values
-            constraint will be used. (see: get_core_props)
+        not given. This is a set of PIDs to use. If None, all Wikidata properties with a distinct values
+        constraint will be used. (see: get_core_props)
         :type core_props: set
         :param core_prop_match_thresh: The proportion of core props that must match during retrieval of an item
-            when the wd_item_id is not specified.
+        when the wd_item_id is not specified.
         :type core_prop_match_thresh: float
         :param debug: Enable debug output.
         :type debug: boolean
@@ -127,10 +296,8 @@ class WDItemEngine(object):
         self.sparql_endpoint_url = config['SPARQL_ENDPOINT_URL'] if sparql_endpoint_url is None else sparql_endpoint_url
         self.wikibase_url = config['WIKIBASE_URL'] if wikibase_url is None else wikibase_url
         self.concept_base_uri = config['CONCEPT_BASE_URI'] if concept_base_uri is None else concept_base_uri
-        self.property_constraint_pid = config[
-            'PROPERTY_CONSTRAINT_PID'] if property_constraint_pid is None else property_constraint_pid
-        self.distinct_values_constraint_qid = config[
-            'DISTINCT_VALUES_CONSTRAINT_QID'] if distinct_values_constraint_qid is None else distinct_values_constraint_qid
+        self.property_constraint_pid = config['PROPERTY_CONSTRAINT_PID'] if property_constraint_pid is None else property_constraint_pid
+        self.distinct_values_constraint_qid = config['DISTINCT_VALUES_CONSTRAINT_QID'] if distinct_values_constraint_qid is None else distinct_values_constraint_qid
         self.data = [] if data is None else data
         self.append_value = [] if append_value is None else append_value
         self.fast_run = fast_run
@@ -1004,7 +1171,6 @@ class WDItemEngine(object):
         self.data = []
         if "success" in json_data and "entity" in json_data and "lastrevid" in json_data["entity"]:
             self.lastrevid = json_data["entity"]["lastrevid"]
-        time.sleep(.5)
         return self.wd_item_id
 
     @staticmethod
@@ -1274,95 +1440,6 @@ class WDItemEngine(object):
         df = pd.DataFrame(results)
         return df
 
-    ## SHEX related functions
-    @staticmethod
-    def check_shex_conformance(qid, eid, sparql_endpoint_url=None, output='confirm'):
-        """
-                Static method which can be used to check for conformance of a Wikidata item to an EntitySchema any SPARQL query
-                :param qid: The URI prefixes required for an endpoint, default is the Wikidata specific prefixes
-                :param eid: The EntitySchema identifier from Wikidata
-                :param sparql_endpoint_url: The URL string for the SPARQL endpoint. Default is the URL for the Wikidata SPARQL endpoint
-                :param output: results of a test of conformance on a given shape expression
-                :return: The results of the query are returned in string format
-        """
-
-        sparql_endpoint_url = config['SPARQL_ENDPOINT_URL'] if sparql_endpoint_url is None else sparql_endpoint_url
-
-        schema = requests.get("https://www.wikidata.org/wiki/Special:EntitySchemaText/" + eid).text
-        rdfdata = Graph()
-        rdfdata.parse(config["CONCEPT_BASE_URI"] + qid + ".ttl")
-
-        for result in ShExEvaluator(rdf=rdfdata, schema=schema, focus=config["CONCEPT_BASE_URI"] + qid).evaluate():
-            shex_result = dict()
-            if result.result:
-                shex_result["result"] = True
-            else:
-                shex_result["result"] = False
-            shex_result["reason"] = result.reason
-            shex_result["focus"] = result.focus
-
-        if output == "confirm":
-            return shex_result["result"]
-        elif output == "reason":
-            return shex_result["reason"]
-        else:
-            return shex_result
-
-    @staticmethod
-    def extract_shex(qid, extract_shape_of_qualifiers=False, just_direct_properties=True,
-                     comments=False, endpoint="https://query.wikidata.org/sparql"):
-        """
-        It extracts a shape tor the entity specified in qid. The shape is built w.r.t the outgoing
-        properties of the selected Wikidata entity.
-
-        Optionally, it generates as well a shape for each qualifier.
-
-        :param qid: Wikidata identifier to which other wikidata items link
-        :param extract_shape_of_qualifiers: It it is set to True, the result will contain the shape of the qid
-                selected but also the shapes of its qualifiers.
-        :param just_direct_properties: If it set to True, the shape obtained will just contain direct properties to other
-                Wikidata items. It will ignore qualifiers. Do not set to True if extract_shape_of_qualifiers is True
-        :param comments: If it is set to True, each triple constraint will have an associated comment that indicates
-               the trustworthiness of each triple constraint. This is usefull for shapes that have been extracted
-               w.r.t to the properties of more than one entity.
-        :param endpoint: The URL string for the SPARQL endpoint. Default is the URL for the Wikidata SPARQL endpoint
-
-        :return: shex content in String format
-        """
-        namespaces_dict = {
-            "http://www.w3.org/2000/01/rdf-schema#": "rdfs",
-            "http://www.wikidata.org/prop/": "p",
-            "http://www.wikidata.org/prop/direct/": "wdt",
-            "http://www.wikidata.org/entity/": "wd",
-            "http://www.w3.org/2001/XMLSchema#": "xsd",
-            "http://www.w3.org/1999/02/22-rdf-syntax-ns#": "rdf",
-            "http://www.w3.org/XML/1998/namespace": "xml",
-            "http://wikiba.se/ontology#": "wikibase",
-            "http://schema.org/": "schema",
-            "http://www.w3.org/2004/02/skos/core#": "skos"
-        }
-        namespaces_to_ignore = [  # Ignoring these namespaces, mainly just direct properties are considered.
-            "http://www.wikidata.org/prop/",
-            "http://www.wikidata.org/prop/direct-normalized/",
-            "http://schema.org/",
-            "http://www.w3.org/2004/02/skos/core#",
-            "http://wikiba.se/ontology#",
-            "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-            "http://www.w3.org/2000/01/rdf-schema#"
-        ]
-
-        shape_map = "<http://www.wikidata.org/entity/{qid}>@<{qid}>".format(qid=qid)
-        shaper = Shaper(shape_map_raw=shape_map,
-                        url_endpoint=endpoint,
-                        disable_comments=not comments,
-                        shape_qualifiers_mode=extract_shape_of_qualifiers,
-                        namespaces_dict=namespaces_dict,
-                        namespaces_to_ignore=namespaces_to_ignore if just_direct_properties else None,
-                        namespaces_for_qualifier_props=["http://www.wikidata.org/prop/"],
-                        depth_for_building_subgraph=2 if extract_shape_of_qualifiers else 1)
-        return shaper.shex_graph(string_output=True,
-                                 acceptance_threshold=0)
-
     @staticmethod
     def get_linked_by(qid, mediawiki_api_url=None):
         """
@@ -1468,8 +1545,7 @@ class WDItemEngine(object):
             OPTIONAL {
               ?db wdt:P1687 ?wd_prop .
             }
-        }
-        '''
+        }'''
 
         for x in cls.execute_sparql_query(db_query, endpoint=sparql_endpoint_url)['results']['bindings']:
             db_qid = x['db']['value'].split('/')[-1]
@@ -1527,7 +1603,7 @@ class WDItemEngine(object):
 
     # References
     @classmethod
-    def count_references(cls, prop_id):
+    def count_references(cls, prop_id, user_agent=config['USER_AGENT_DEFAULT']):
         counts = dict()
         for claim in cls.get_wd_json_representation()['claims'][prop_id]:
             counts[claim['id']] = len(claim['references'])
@@ -1669,8 +1745,7 @@ class WDBaseDataType(object):
       ?item_id p:P492 ?s .
       ?s ps:P492 '614212' .
       OPTIONAL {?s pq:P4390 ?mrt}
-    }
-    """
+    }"""
 
     sparql_query = '''
         PREFIX wd: <{wb_url}/entity/>
@@ -2731,6 +2806,59 @@ class WDCommonsMedia(WDBaseDataType):
             return cls(value=None, prop_nr=jsn['property'], snak_type=jsn['snaktype'])
         return cls(value=jsn['datavalue']['value'], prop_nr=jsn['property'])
 
+class WDLocalMedia(WDBaseDataType):
+    """
+    Implements the data type for Wikibase local media files.
+    The new data type is introduced via the LocalMedia extension
+    https://github.com/ProfessionalWiki/WikibaseLocalMedia
+    """
+    DTYPE = 'localMedia'
+
+    def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
+                 qualifiers=None, rank='normal', check_qualifier_equality=True):
+        """
+        Constructor, calls the superclass WDBaseDataType
+        :param value: The media file name from the local Mediawiki to be used as the value
+        :type value: str
+        :param prop_nr: The property id for this claim
+        :type prop_nr: str with a 'P' prefix followed by digits
+        :param is_reference: Whether this snak is a reference
+        :type is_reference: boolean
+        :param is_qualifier: Whether this snak is a qualifier
+        :type is_qualifier: boolean
+        :param snak_type: The snak type, either 'value', 'somevalue' or 'novalue'
+        :type snak_type: str
+        :param references: List with reference objects
+        :type references: A WD data type with subclass of WDBaseDataType
+        :param qualifiers: List with qualifier objects
+        :type qualifiers: A WD data type with subclass of WDBaseDataType
+        :param rank: WD rank of a snak with value 'preferred', 'normal' or 'deprecated'
+        :type rank: str
+        """
+
+        super(WDLocalMedia, self).__init__(value=value, snak_type=snak_type, data_type=self.DTYPE,
+                                           is_reference=is_reference, is_qualifier=is_qualifier,
+                                           references=references, qualifiers=qualifiers, rank=rank, prop_nr=prop_nr,
+                                           check_qualifier_equality=check_qualifier_equality)
+
+        self.set_value(value)
+
+    def set_value(self, value):
+        assert isinstance(value, str) or value is None, "Expected str, found {} ({})".format(type(value), value)
+        self.json_representation['datavalue'] = {
+            'value': value,
+            'type': 'string'
+        }
+
+        super(WDLocalMedia, self).set_value(value)
+
+    @classmethod
+    @JsonParser
+    def from_json(cls, jsn):
+        if jsn['snaktype'] == 'novalue' or jsn['snaktype'] == 'somevalue':
+            return cls(value=None, prop_nr=jsn['property'], snak_type=jsn['snaktype'])
+        return cls(value=jsn['datavalue']['value'], prop_nr=jsn['property'])
+
 
 class WDGlobeCoordinate(WDBaseDataType):
     """
@@ -3008,6 +3136,7 @@ class WDLexeme(WDBaseDataType):
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
                  qualifiers=None, rank='normal', check_qualifier_equality=True):
+
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD lexeme number to serve as a value
@@ -3146,6 +3275,7 @@ class WDSense(WDBaseDataType):
 
     def __init__(self, value, prop_nr, is_reference=False, is_qualifier=False, snak_type='value', references=None,
                  qualifiers=None, rank='normal', check_qualifier_equality=True):
+
         """
         Constructor, calls the superclass WDBaseDataType
         :param value: The WD form number to serve as a value using the format "L<Lexeme ID>-F<Form ID>" (example: L252248-F2)
@@ -3193,7 +3323,6 @@ class WDSense(WDBaseDataType):
             },
             'type': 'wikibase-entityid'
         }
-
         super(WDSense, self).set_value(value=value)
 
     @classmethod
@@ -3208,8 +3337,10 @@ class WDApiError(Exception):
     def __init__(self, wd_error_message):
         """
         Base class for Wikidata error handling
+
         :param wd_error_message: The error message returned by the WD API
         :type wd_error_message: A Python json representation dictionary of the error message
+
         :return:
         """
         self.wd_error_msg = wd_error_message
@@ -3221,13 +3352,15 @@ class WDApiError(Exception):
 class NonUniqueLabelDescriptionPairError(WDApiError):
     def __init__(self, wd_error_message):
         """
-        This class handles errors returned from the WD API due to an attempt to create an item which has the same
-         label and description as an existing item in a certain language.
-        :param wd_error_message: An WD API error mesage containing 'wikibase-validator-label-with-description-conflict'
-         as the message name.
-        :type wd_error_message: A Python json representation dictionary of the error message
-        :return:
-        """
+        This class handles errors returned from the WD API due to an attempt to create an item which has the same \
+        label and description as an existing item in a certain language.\
+
+        :param wd_error_message: An WD API error mesage containing 'wikibase-validator-label-with-description-conflict'\
+         as the message name.\
+        :type wd_error_message: A Python json representation dictionary of the error message\
+
+        :return:"""
+
         self.wd_error_msg = wd_error_message
 
     def get_language(self):
@@ -3238,8 +3371,10 @@ class NonUniqueLabelDescriptionPairError(WDApiError):
 
     def get_conflicting_item_qid(self):
         """
+        TODO: Needs better explanation
+
         :return: Returns the QID string of the item which has the same label and description as the one which should
-         be set.
+            be set.
         """
         qid_string = self.wd_error_msg['error']['messages'][0]['parameters'][2]
 
@@ -3290,11 +3425,9 @@ class MergeError(Exception):
 
 
 class FormatterWithHeader(logging.Formatter):
-    # http://stackoverflow.com/questions/33468174/write-header-to-a-python-log-file-but-only-if-a-record-gets-written
     def __init__(self, header, **kwargs):
         super(FormatterWithHeader, self).__init__(**kwargs)
         self.header = header
-        # Override the normal format method
         self.format = self.first_line_format
 
     def first_line_format(self, record):
