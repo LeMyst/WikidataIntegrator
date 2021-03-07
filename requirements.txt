@@ -10,3 +10,7 @@ oauthlib
 tqdm
 backoff
 rdflib
+pyshexc
+pyshex
+ShExJSG
+shexer

@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-VERSION = "0.8.3-dev"
+VERSION = "0.8.7"
 
 setup(
     name='wikidataintegrator',
@@ -17,8 +17,6 @@ setup(
     include_package_data=True,
     ## long_description=read('README.md'),
     classifiers=[
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
